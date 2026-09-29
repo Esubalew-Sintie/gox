@@ -1,0 +1,43 @@
+package initiator
+
+{{- if .Storage.Postgres }}
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	"os"
+
+	_ "github.com/lib/pq"
+)
+
+func connectDB() *sql.DB {
+	dsn := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		getenv("DB_HOST", "localhost"),
+		getenv("DB_PORT", "5432"),
+		getenv("DB_USER", "postgres"),
+		os.Getenv("DB_PASSWORD"),
+		getenv("DB_NAME", "{{ .ProjectName }}"),
+		getenv("DB_SSLMODE", "disable"),
+	)
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		log.Fatalf("open database: %v", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("ping database: %v", err)
+	}
+
+	return db
+}
+
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+{{- end }}

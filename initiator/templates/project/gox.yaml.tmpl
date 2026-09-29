@@ -1,0 +1,10 @@
+version: 1
+module: {{ .Module }}
+layout: clean-rest
+
+storage:
+  postgres: {{ .Storage.Postgres }}
+
+features:
+  redis: {{ .Features.Redis }}
+  kafka: {{ .Features.Kafka }}

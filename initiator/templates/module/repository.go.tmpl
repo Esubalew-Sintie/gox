@@ -1,0 +1,19 @@
+package {{ .Snake }}
+
+{{- if .Storage.Postgres }}
+import "database/sql"
+{{- end }}
+
+type Repository struct {
+{{- if .Storage.Postgres }}
+	db *sql.DB
+{{- end }}
+}
+
+func NewRepository({{- if .Storage.Postgres }}db *sql.DB{{- end }}) *Repository {
+	return &Repository{
+{{- if .Storage.Postgres }}
+		db: db,
+{{- end }}
+	}
+}

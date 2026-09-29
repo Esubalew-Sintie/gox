@@ -1,0 +1,11 @@
+package {{ .Snake }}
+
+import "net/http"
+
+func Register(mux *http.ServeMux, handler *Handler) {
+	mux.HandleFunc("POST /{{ .Plural }}", handler.Create)
+	mux.HandleFunc("GET /{{ .Plural }}", handler.List)
+	mux.HandleFunc("GET /{{ .Plural }}/{id}", handler.Get)
+	mux.HandleFunc("PUT /{{ .Plural }}/{id}", handler.Update)
+	mux.HandleFunc("DELETE /{{ .Plural }}/{id}", handler.Delete)
+}

@@ -1,0 +1,11 @@
+package {{ .Snake }}
+
+import (
+	"net/http"
+	mod "{{ .ModulePath }}/internal/module/{{ .Snake }}"
+)
+
+// Register delegates route registration to the canonical module implementation.
+func Register(mux *http.ServeMux, handler *mod.Handler) {
+	mod.Register(mux, handler)
+}

@@ -1,0 +1,6 @@
+package {{ .Snake }}
+
+import mod "{{ .ModulePath }}/internal/module/{{ .Snake }}"
+
+// Repository aliases the canonical module repository implementation.
+type Repository = mod.Repository

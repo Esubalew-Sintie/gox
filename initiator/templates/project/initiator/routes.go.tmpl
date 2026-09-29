@@ -1,0 +1,22 @@
+package initiator
+
+import (
+	"net/http"
+
+	// gox:imports:start
+	// gox:imports:end
+)
+
+// setupRoutes registers all module routes on a new mux.
+func setupRoutes() *http.ServeMux {
+	db := connectDB()
+	modules := newModules(db)
+	_ = modules
+
+	mux := http.NewServeMux()
+
+	// gox:routes:start
+	// gox:routes:end
+
+	return mux
+}
