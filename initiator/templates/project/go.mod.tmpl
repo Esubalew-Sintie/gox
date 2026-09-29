@@ -1,3 +1,24 @@
 module {{ .Module }}
 
 go 1.22.0
+
+require (
+{{ if eq .HTTP "chi" }}
+	github.com/go-chi/chi/v5 v5.2.5
+{{ end }}
+{{ if eq .HTTP "gin" }}
+	github.com/gin-gonic/gin v1.12.0
+{{ end }}
+{{ if .Storage.Postgres }}
+	github.com/jackc/pgx/v5 v5.7.6
+{{ end }}
+{{ if .Storage.Mongo }}
+	go.mongodb.org/mongo-driver v1.17.6
+{{ end }}
+{{ if .Features.Redis }}
+	github.com/redis/go-redis/v9 v9.12.1
+{{ end }}
+{{ if .Features.Kafka }}
+	github.com/segmentio/kafka-go v0.4.47
+{{ end }}
+)

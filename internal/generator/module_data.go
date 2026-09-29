@@ -9,6 +9,7 @@ import (
 type ModuleData struct {
 	ProjectName string
 	ModulePath  string
+	HTTP        string
 
 	Name   string
 	Pascal string
@@ -37,6 +38,7 @@ func NewModuleData(
 	return &ModuleData{
 		ProjectName: projectName,
 		ModulePath:  cfg.Module,
+		HTTP:        cfg.HTTP,
 
 		Name:   name.Original,
 		Pascal: name.Pascal,

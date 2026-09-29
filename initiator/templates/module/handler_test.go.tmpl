@@ -1,0 +1,22 @@
+package {{ .Snake }}
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	module "{{ .ModulePath }}/internal/module/{{ .Snake }}"
+	persistence "{{ .ModulePath }}/internal/storage/persistence/{{ .Snake }}"
+)
+
+func TestHealth(t *testing.T) {
+	handler := Init(module.Init(persistence.Init()))
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/{{ .Plural }}/health", nil)
+
+	handler.Health(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+}

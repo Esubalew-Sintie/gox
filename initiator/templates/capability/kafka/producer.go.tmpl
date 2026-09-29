@@ -1,0 +1,38 @@
+package kafka
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	kafkago "github.com/segmentio/kafka-go"
+)
+
+type Producer struct {
+	writer *kafkago.Writer
+}
+
+func NewProducer(brokers []string, topic string) (*Producer, error) {
+	if len(brokers) == 0 || strings.TrimSpace(brokers[0]) == "" {
+		return nil, fmt.Errorf("at least one kafka broker is required")
+	}
+	if topic == "" {
+		return nil, fmt.Errorf("kafka topic is required")
+	}
+
+	return &Producer{
+		writer: &kafkago.Writer{
+			Addr:     kafkago.TCP(brokers...),
+			Topic:    topic,
+			Balancer: &kafkago.LeastBytes{},
+		},
+	}, nil
+}
+
+func (p *Producer) Publish(ctx context.Context, key, value []byte) error {
+	return p.writer.WriteMessages(ctx, kafkago.Message{Key: key, Value: value})
+}
+
+func (p *Producer) Close() error {
+	return p.writer.Close()
+}

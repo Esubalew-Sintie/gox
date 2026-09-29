@@ -3,13 +3,14 @@ package generator
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/esubalew-Sintie/gox/internal/config"
 	"github.com/esubalew-Sintie/gox/internal/filesystem"
 	"github.com/esubalew-Sintie/gox/internal/renderer"
 )
 
-// CapabilityGenerator adds optional infrastructure capabilities to existing projects.
+// CapabilityGenerator adds optional infrastructure clients to existing projects.
 type CapabilityGenerator struct {
 	fs       *filesystem.FileSystem
 	config   *config.ConfigManager
@@ -30,92 +31,93 @@ func NewCapabilityGenerator(
 	}
 }
 
-// CapabilityOptions names the capability to add.
 type CapabilityOptions struct {
 	Name string
 }
 
-// capabilityTemplateData feeds capability templates.
-type capabilityTemplateData struct {
-	Module string
+type capabilitySpec struct {
+	template string
+	path     string
+	module   string
+	enabled  func(*config.Config) bool
+	enable   func(*config.Config)
 }
 
-func (g *CapabilityGenerator) Add(
-	projectPath string,
-	options CapabilityOptions,
-) error {
-	if options.Name == "" {
-		return fmt.Errorf("capability name is required")
+var capabilitySpecs = map[string]capabilitySpec{
+	"postgres": {
+		template: "capability/postgres/client.go.tmpl",
+		path:     filepath.Join("internal", "infrastructure", "postgres", "client.go"),
+		module:   "github.com/jackc/pgx/v5@v5.7.6",
+		enabled:  func(cfg *config.Config) bool { return cfg.Storage.Postgres },
+		enable:   func(cfg *config.Config) { cfg.Storage.Postgres = true },
+	},
+	"mongo": {
+		template: "capability/mongo/client.go.tmpl",
+		path:     filepath.Join("internal", "infrastructure", "mongo", "client.go"),
+		module:   "go.mongodb.org/mongo-driver@v1.17.6",
+		enabled:  func(cfg *config.Config) bool { return cfg.Storage.Mongo },
+		enable:   func(cfg *config.Config) { cfg.Storage.Mongo = true },
+	},
+	"redis": {
+		template: "capability/redis/client.go.tmpl",
+		path:     filepath.Join("internal", "infrastructure", "redis", "client.go"),
+		module:   "github.com/redis/go-redis/v9@v9.12.1",
+		enabled:  func(cfg *config.Config) bool { return cfg.Features.Redis },
+		enable:   func(cfg *config.Config) { cfg.Features.Redis = true },
+	},
+	"kafka": {
+		template: "capability/kafka/producer.go.tmpl",
+		path:     filepath.Join("internal", "infrastructure", "kafka", "producer.go"),
+		module:   "github.com/segmentio/kafka-go@v0.4.47",
+		enabled:  func(cfg *config.Config) bool { return cfg.Features.Kafka },
+		enable:   func(cfg *config.Config) { cfg.Features.Kafka = true },
+	},
+}
+
+// Add writes a generated adapter, records the capability, and adds its module.
+func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions) error {
+	name := strings.ToLower(strings.TrimSpace(options.Name))
+	if name == "postgresql" {
+		name = "postgres"
+	}
+	if name == "mongodb" {
+		name = "mongo"
+	}
+
+	spec, ok := capabilitySpecs[name]
+	if !ok {
+		return fmt.Errorf("unknown capability %q; supported: postgres, mongo, redis, kafka", options.Name)
 	}
 
 	cfg, err := g.config.Load(projectPath)
 	if err != nil {
 		return fmt.Errorf("load project config: %w", err)
 	}
-
-	data := capabilityTemplateData{Module: cfg.Module}
-
-	switch options.Name {
-	case "postgres":
-		return g.addPostgres(projectPath, cfg, data)
-
-	case "redis":
-		cfg.Features.Redis = true
-		if err := g.config.Save(projectPath, cfg); err != nil {
-			return fmt.Errorf("save project config: %w", err)
-		}
-		fmt.Println("  ✓ Redis capability enabled in .gox.yaml")
-		fmt.Println("    Add Redis client integration manually or wait for a future gox release.")
-		return nil
-
-	case "kafka":
-		cfg.Features.Kafka = true
-		if err := g.config.Save(projectPath, cfg); err != nil {
-			return fmt.Errorf("save project config: %w", err)
-		}
-		fmt.Println("  ✓ Kafka capability enabled in .gox.yaml")
-		fmt.Println("    Add Kafka client integration manually or wait for a future gox release.")
-		return nil
-
-	default:
-		return fmt.Errorf("unknown capability: %s\nSupported: postgres, redis, kafka", options.Name)
-	}
-}
-
-func (g *CapabilityGenerator) addPostgres(
-	projectPath string,
-	cfg *config.Config,
-	data capabilityTemplateData,
-) error {
-	if cfg.Storage.Postgres {
-		return fmt.Errorf("PostgreSQL is already configured for this project")
+	if spec.enabled(cfg) {
+		return fmt.Errorf("%s is already configured for this project", name)
 	}
 
-	dbGo, err := g.renderer.Render("database.go.tmpl", data)
+	content, err := g.renderer.Render(spec.template, struct{}{})
 	if err != nil {
-		return fmt.Errorf("render postgres database.go: %w", err)
+		return fmt.Errorf("render %s: %w", name, err)
 	}
-
 	plan := NewGenerationPlan()
-
-	dbPath := filepath.Join("internal", "infrastructure", "database", "database.go")
-	if err := plan.AddCreate(dbPath, dbGo); err != nil {
+	if err := plan.AddCreate(spec.path, content); err != nil {
 		return err
 	}
-
 	if err := g.executor.Execute(projectPath, plan); err != nil {
-		return fmt.Errorf("write postgres files: %w", err)
+		return fmt.Errorf("write %s adapter: %w", name, err)
 	}
 
-	cfg.Storage.Postgres = true
+	spec.enable(cfg)
 	if err := g.config.Save(projectPath, cfg); err != nil {
 		return fmt.Errorf("save project config: %w", err)
 	}
-
-	// Try to get the postgres driver (best-effort)
-	if err := runCommand(projectPath, "go", "get", "github.com/lib/pq@latest"); err != nil {
-		fmt.Printf("  ⚠ go get github.com/lib/pq failed: %v\n", err)
+	if err := runCommand(projectPath, "go", "get", spec.module); err != nil {
+		return fmt.Errorf("add %s dependency: %w", name, err)
 	}
-
+	if err := runCommand(projectPath, "go", "mod", "tidy"); err != nil {
+		return fmt.Errorf("tidy module after adding %s: %w", name, err)
+	}
 	return nil
 }

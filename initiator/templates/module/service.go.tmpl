@@ -1,11 +1,24 @@
 package {{ .Snake }}
 
-type Service struct {
-	repo *Repository
+import (
+	model "{{ .ModulePath }}/internal/constant/model"
+	dto "{{ .ModulePath }}/internal/constant/model/dto"
+	persistence "{{ .ModulePath }}/internal/storage/persistence/{{ .Snake }}"
+)
+
+type Service interface {
+	Create(dto.Create{{ .Pascal }}Request) model.{{ .Pascal }}
+	List() []model.{{ .Pascal }}
+	Get(string) (model.{{ .Pascal }}, bool)
+	Update(string, dto.Update{{ .Pascal }}Request) (model.{{ .Pascal }}, bool)
+	Delete(string) bool
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{
-		repo: repo,
-	}
-}
+type service struct { repository persistence.Repository }
+
+func Init(repository persistence.Repository) Service { return &service{repository: repository} }
+func (s *service) Create(input dto.Create{{ .Pascal }}Request) model.{{ .Pascal }} { return s.repository.Create(input) }
+func (s *service) List() []model.{{ .Pascal }} { return s.repository.List() }
+func (s *service) Get(id string) (model.{{ .Pascal }}, bool) { return s.repository.Get(id) }
+func (s *service) Update(id string, input dto.Update{{ .Pascal }}Request) (model.{{ .Pascal }}, bool) { return s.repository.Update(id, input) }
+func (s *service) Delete(id string) bool { return s.repository.Delete(id) }

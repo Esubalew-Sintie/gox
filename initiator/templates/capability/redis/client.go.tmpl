@@ -1,0 +1,25 @@
+package redis
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/redis/go-redis/v9"
+)
+
+func Open(ctx context.Context, address, password string, database int) (*redis.Client, error) {
+	if address == "" {
+		return nil, fmt.Errorf("redis address is required")
+	}
+
+	client := redis.NewClient(&redis.Options{
+		Addr:     address,
+		Password: password,
+		DB:       database,
+	})
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("ping redis: %w", err)
+	}
+	return client, nil
+}

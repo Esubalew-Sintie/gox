@@ -1,0 +1,24 @@
+package initiator
+
+import (
+	"os"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	Port            string
+	ShutdownTimeout time.Duration
+}
+
+func LoadConfig() Config {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		port = "8080"
+	}
+
+	return Config{
+		Port:            port,
+		ShutdownTimeout: 10 * time.Second,
+	}
+}

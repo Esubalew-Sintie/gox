@@ -47,13 +47,8 @@ func LoadTemplates(fsys fs.FS) (*template.Template, error) {
 	return tmpl, nil
 }
 
-// templateName extracts a short template name from the full path.
-// e.g. "templates/module/service.go.tmpl" → "service.go.tmpl"
+// templateName preserves the template-relative path so templates in different
+// feature folders cannot accidentally replace one another.
 func templateName(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[i+1:]
-		}
-	}
 	return path
 }

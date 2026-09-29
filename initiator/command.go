@@ -25,6 +25,7 @@ idiomatic Go architecture and explicit application code.`,
 	root.AddCommand(
 		newCmd(d),
 		addCmd(d),
+		removeCmd(d),
 		generateCmd(d),
 		versionCmd(),
 		doctorCmd(),
@@ -38,6 +39,7 @@ idiomatic Go architecture and explicit application code.`,
 func newCmd(d *deps) *cobra.Command {
 	var (
 		modulePath string
+		layout     string
 		http       string
 		db         string
 		withOpts   string
@@ -56,12 +58,16 @@ func newCmd(d *deps) *cobra.Command {
 			}
 
 			opts.Module = modulePath
+			opts.Layout = layout
+			opts.HTTP = http
 			opts.Git = git
 
 			// Resolve db flag
 			switch db {
 			case "postgres", "postgresql":
 				opts.Postgres = true
+			case "mongo", "mongodb":
+				opts.Mongo = true
 			}
 
 			// Resolve --with flag (e.g. redis,kafka)
@@ -74,6 +80,8 @@ func newCmd(d *deps) *cobra.Command {
 						opts.Kafka = true
 					case "postgres", "postgresql":
 						opts.Postgres = true
+					case "mongo", "mongodb":
+						opts.Mongo = true
 					}
 				}
 			}
@@ -85,9 +93,10 @@ func newCmd(d *deps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&modulePath, "module", "", "Go module path (e.g. github.com/acme/api)")
-	cmd.Flags().StringVar(&http, "http", "", "HTTP framework: net/http, chi, gin")
-	cmd.Flags().StringVar(&db, "db", "", "Database: postgres, mysql")
-	cmd.Flags().StringVar(&withOpts, "with", "", "Optional capabilities: redis,kafka")
+	cmd.Flags().StringVar(&layout, "layout", "layered-rest", "Architecture: layered-rest, feature-first")
+	cmd.Flags().StringVar(&http, "http", "", "HTTP router: net/http, chi, gin")
+	cmd.Flags().StringVar(&db, "db", "", "Storage: postgres, mongo")
+	cmd.Flags().StringVar(&withOpts, "with", "", "Optional capabilities: redis,kafka,mongo,postgres")
 	cmd.Flags().BoolVar(&git, "git", false, "Initialize a Git repository")
 
 	return cmd
@@ -103,6 +112,7 @@ func addCmd(d *deps) *cobra.Command {
 
 Examples:
   gox add postgres
+  gox add mongo
   gox add redis
   gox add kafka`,
 		Args: cobra.ExactArgs(1),
@@ -111,6 +121,30 @@ Examples:
 		},
 	}
 
+	return cmd
+}
+
+// ─── gox remove ────────────────────────────────────────────────────────────
+
+func removeCmd(d *deps) *cobra.Command {
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:     "remove resource <name>",
+		Aliases: []string{"rm"},
+		Short:   "Remove a generated resource",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if args[0] != "resource" && args[0] != "module" {
+				return fmt.Errorf("supported removal targets: resource, module")
+			}
+			projectPath, err := cli.FindProjectRoot()
+			if err != nil {
+				return err
+			}
+			return d.moduleGen.Remove(projectPath, args[1], dryRun)
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing files")
 	return cmd
 }
 
@@ -133,9 +167,9 @@ func generateModuleCmd(d *deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "module <name>",
-		Aliases: []string{"mod"},
-		Short:   "Generate a complete business module",
-		Long: `Generate a complete business module including:
+		Aliases: []string{"mod", "resource", "r"},
+		Short:   "Generate a complete business resource",
+		Long: `Generate a complete business resource including:
   - Repository
   - Service
   - Handler

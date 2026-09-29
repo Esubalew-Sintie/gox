@@ -1,9 +1,11 @@
 version: 1
 module: {{ .Module }}
-layout: clean-rest
+layout: {{ .Layout }}
+http: {{ .HTTP }}
 
 storage:
   postgres: {{ .Storage.Postgres }}
+  mongo: {{ .Storage.Mongo }}
 
 features:
   redis: {{ .Features.Redis }}

@@ -1,0 +1,9 @@
+package {{ .Snake }}
+
+type Create{{ .Pascal }}Request struct{}
+
+type Update{{ .Pascal }}Request struct{}
+
+type {{ .Pascal }}Response struct {
+	ID string `json:"id"`
+}

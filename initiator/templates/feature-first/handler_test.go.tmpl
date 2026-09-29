@@ -1,0 +1,19 @@
+package {{ .Snake }}
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestHealth(t *testing.T) {
+	handler := NewHandler(NewService(NewRepository()))
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/{{ .Plural }}/health", nil)
+
+	handler.Health(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
