@@ -22,36 +22,30 @@ type ModuleData struct {
 	Options ModuleOptions
 }
 
-// StorageData reflects the project's storage capabilities.
 type StorageData struct {
+	Driver   string
 	Postgres bool
+	Mongo    bool
 	Redis    bool
 }
 
-// NewModuleData constructs ModuleData from project config and naming.
-func NewModuleData(
-	projectName string,
-	cfg *config.Config,
-	name *naming.Name,
-	options ModuleOptions,
-) *ModuleData {
+func NewModuleData(projectName string, cfg *config.Config, name *naming.Name, options ModuleOptions) *ModuleData {
 	return &ModuleData{
 		ProjectName: projectName,
 		ModulePath:  cfg.Module,
 		HTTP:        cfg.HTTP,
-
-		Name:   name.Original,
-		Pascal: name.Pascal,
-		Camel:  name.Camel,
-		Snake:  name.Snake,
-		Kebab:  name.Kebab,
-		Plural: name.Plural,
-
+		Name:        name.Original,
+		Pascal:      name.Pascal,
+		Camel:       name.Camel,
+		Snake:       name.Snake,
+		Kebab:       name.Kebab,
+		Plural:      name.Plural,
 		Storage: StorageData{
+			Driver:   cfg.Storage.Driver,
 			Postgres: cfg.Storage.Postgres,
+			Mongo:    cfg.Storage.Mongo,
 			Redis:    cfg.Features.Redis,
 		},
-
 		Options: options,
 	}
 }

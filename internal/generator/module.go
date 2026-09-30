@@ -47,7 +47,7 @@ func (g *ModuleGenerator) BuildPlan(projectPath string, options ModuleOptions) (
 		return nil, fmt.Errorf("parse module name: %w", err)
 	}
 
-	layout, err := buildModuleLayout(cfg.Layout, cfg.Module, name)
+	layout, err := buildModuleLayout(cfg.Layout, cfg.Module, cfg.Storage.Driver, name)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (g *ModuleGenerator) BuildRemovePlan(projectPath, resourceName string) (*Ge
 		return nil, fmt.Errorf("parse resource name: %w", err)
 	}
 
-	layout, err := buildModuleLayout(cfg.Layout, cfg.Module, name)
+	layout, err := buildModuleLayout(cfg.Layout, cfg.Module, cfg.Storage.Driver, name)
 	if err != nil {
 		return nil, err
 	}

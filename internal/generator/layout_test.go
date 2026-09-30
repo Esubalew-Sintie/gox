@@ -22,7 +22,7 @@ func TestBuildModuleLayout(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		spec, err := buildModuleLayout(test.layout, "example.com/app", name)
+		spec, err := buildModuleLayout(test.layout, "example.com/app", "memory", name)
 		if err != nil {
 			t.Fatalf("buildModuleLayout(%q): %v", test.layout, err)
 		}

@@ -36,15 +36,21 @@ func RunNew(gen *generator.ProjectGenerator, opts generator.ProjectOptions) erro
 	}
 	opts.HTTP = router
 
-	var database []string
-	if err := survey.AskOne(&survey.MultiSelect{
-		Message: "Storage providers:",
-		Options: []string{"PostgreSQL", "MongoDB"},
+	var database string
+	if err := survey.AskOne(&survey.Select{
+		Message: "Persistence database:",
+		Options: []string{"Memory", "PostgreSQL", "MongoDB"},
+		Default: "Memory",
 	}, &database); err != nil {
-		return fmt.Errorf("prompt storage providers: %w", err)
+		return fmt.Errorf("prompt persistence database: %w", err)
 	}
-	opts.Postgres = contains(database, "PostgreSQL")
-	opts.Mongo = contains(database, "MongoDB")
+	opts.Database = strings.ToLower(database)
+	switch opts.Database {
+	case "postgresql":
+		opts.Database = "postgres"
+	case "mongodb":
+		opts.Database = "mongo"
+	}
 
 	var capabilities []string
 	if err := survey.AskOne(&survey.MultiSelect{
@@ -69,15 +75,6 @@ func RunNew(gen *generator.ProjectGenerator, opts generator.ProjectOptions) erro
 	opts.Git = strings.EqualFold(git, "yes")
 
 	return runNewWithOpts(gen, opts)
-}
-
-func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 
 func runNewWithOpts(gen *generator.ProjectGenerator, opts generator.ProjectOptions) error {

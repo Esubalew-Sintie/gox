@@ -1,5 +1,184 @@
 package {{ .Snake }}
 
+{{ if eq .Storage.Driver "postgres" }}
+import (
+	"context"
+	"fmt"
+	"time"
+
+	dto "{{ .ModulePath }}/internal/constant/dto"
+	entity "{{ .ModulePath }}/internal/constant/entities/{{ .Snake }}"
+	persistence "{{ .ModulePath }}/internal/storage/persistence"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type repository struct {
+	pool *pgxpool.Pool
+}
+
+func Init(pool *pgxpool.Pool) (persistence.{{ .Pascal }}, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("postgres pool is required")
+	}
+	repository := &repository{pool: pool}
+	if err := repository.ensureSchema(context.Background()); err != nil {
+		return nil, err
+	}
+	return repository, nil
+}
+
+func (r *repository) ensureSchema(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS {{ .Snake }} (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL
+	)`)
+	if err != nil {
+		return fmt.Errorf("create {{ .Snake }} table: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
+	ctx := context.Background()
+	item := entity.{{ .Pascal }}{ID: newID(), Name: input.Name, CreatedAt: now(), UpdatedAt: now()}
+	_, err := r.pool.Exec(ctx, "INSERT INTO {{ .Snake }} (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)", item.ID, item.Name, item.CreatedAt, item.UpdatedAt)
+	if err != nil {
+		panic(fmt.Errorf("insert {{ .Snake }}: %w", err))
+	}
+	return item
+}
+
+func (r *repository) List() []entity.{{ .Pascal }} {
+	rows, err := r.pool.Query(context.Background(), "SELECT id, name, created_at, updated_at FROM {{ .Snake }} ORDER BY created_at")
+	if err != nil {
+		panic(fmt.Errorf("list {{ .Snake }}: %w", err))
+	}
+	defer rows.Close()
+
+	items := make([]entity.{{ .Pascal }}, 0)
+	for rows.Next() {
+		var item entity.{{ .Pascal }}
+		if err := rows.Scan(&item.ID, &item.Name, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			panic(fmt.Errorf("scan {{ .Snake }}: %w", err))
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Errorf("iterate {{ .Snake }}: %w", err))
+	}
+	return items
+}
+
+func (r *repository) Get(id string) (entity.{{ .Pascal }}, bool) {
+	var item entity.{{ .Pascal }}
+	err := r.pool.QueryRow(context.Background(), "SELECT id, name, created_at, updated_at FROM {{ .Snake }} WHERE id = $1", id).Scan(&item.ID, &item.Name, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		return entity.{{ .Pascal }}{}, false
+	}
+	return item, true
+}
+
+func (r *repository) Update(id string, input dto.Update{{ .Pascal }}Request) (entity.{{ .Pascal }}, bool) {
+	var item entity.{{ .Pascal }}
+	err := r.pool.QueryRow(context.Background(), "UPDATE {{ .Snake }} SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING id, name, created_at, updated_at", input.Name, id).Scan(&item.ID, &item.Name, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		return entity.{{ .Pascal }}{}, false
+	}
+	return item, true
+}
+
+func (r *repository) Delete(id string) bool {
+	tag, err := r.pool.Exec(context.Background(), "DELETE FROM {{ .Snake }} WHERE id = $1", id)
+	if err != nil {
+		panic(fmt.Errorf("delete {{ .Snake }}: %w", err))
+	}
+	return tag.RowsAffected() > 0
+}
+{{ else if eq .Storage.Driver "mongo" }}
+import (
+	"context"
+	"fmt"
+	"time"
+
+	dto "{{ .ModulePath }}/internal/constant/dto"
+	entity "{{ .ModulePath }}/internal/constant/entities/{{ .Snake }}"
+	persistence "{{ .ModulePath }}/internal/storage/persistence"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+type repository struct {
+	collection *mongo.Collection
+}
+
+func Init(database *mongo.Database) (persistence.{{ .Pascal }}, error) {
+	if database == nil {
+		return nil, fmt.Errorf("mongo database is required")
+	}
+	collection := database.Collection("{{ .Snake }}")
+	_, err := collection.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys: bson.D{{ "{" }}{{ "{" }}Key: "id", Value: 1{{ "}" }}{{ "}" }},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create {{ .Snake }} index: %w", err)
+	}
+	return &repository{collection: collection}, nil
+}
+
+func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
+	item := entity.{{ .Pascal }}{ID: newID(), Name: input.Name, CreatedAt: now(), UpdatedAt: now()}
+	if _, err := r.collection.InsertOne(context.Background(), item); err != nil {
+		panic(fmt.Errorf("insert {{ .Snake }}: %w", err))
+	}
+	return item
+}
+
+func (r *repository) List() []entity.{{ .Pascal }} {
+	cursor, err := r.collection.Find(context.Background(), bson.M{})
+	if err != nil {
+		panic(fmt.Errorf("list {{ .Snake }}: %w", err))
+	}
+	defer cursor.Close(context.Background())
+
+	items := make([]entity.{{ .Pascal }}, 0)
+	if err := cursor.All(context.Background(), &items); err != nil {
+		panic(fmt.Errorf("decode {{ .Snake }} list: %w", err))
+	}
+	return items
+}
+
+func (r *repository) Get(id string) (entity.{{ .Pascal }}, bool) {
+	var item entity.{{ .Pascal }}
+	err := r.collection.FindOne(context.Background(), bson.M{"id": id}).Decode(&item)
+	if err != nil {
+		return entity.{{ .Pascal }}{}, false
+	}
+	return item, true
+}
+
+func (r *repository) Update(id string, input dto.Update{{ .Pascal }}Request) (entity.{{ .Pascal }}, bool) {
+	result, err := r.collection.UpdateOne(context.Background(), bson.M{"id": id}, bson.M{"$set": bson.M{"name": input.Name, "updated_at": now()}})
+	if err != nil {
+		panic(fmt.Errorf("update {{ .Snake }}: %w", err))
+	}
+	if result.MatchedCount == 0 {
+		return entity.{{ .Pascal }}{}, false
+	}
+	return r.Get(id)
+}
+
+func (r *repository) Delete(id string) bool {
+	result, err := r.collection.DeleteOne(context.Background(), bson.M{"id": id})
+	if err != nil {
+		panic(fmt.Errorf("delete {{ .Snake }}: %w", err))
+	}
+	return result.DeletedCount > 0
+}
+{{ else }}
 import (
 	"fmt"
 	"sync"
@@ -17,17 +196,15 @@ type repository struct {
 	items  map[string]entity.{{ .Pascal }}
 }
 
-func Init() persistence.{{ .Pascal }} {
-	return &repository{items: make(map[string]entity.{{ .Pascal }})}
+func Init() (persistence.{{ .Pascal }}, error) {
+	return &repository{items: make(map[string]entity.{{ .Pascal }})}, nil
 }
 
 func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
 	now := time.Now().UTC()
 	item := entity.{{ .Pascal }}{
-		ID:        fmt.Sprintf("{{ .Kebab }}-%d", atomic.AddUint64(&r.nextID, 1)),
-		Name:      input.Name,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: fmt.Sprintf("{{ .Kebab }}-%d", atomic.AddUint64(&r.nextID, 1)),
+		Name: input.Name, CreatedAt: now, UpdatedAt: now,
 	}
 	r.mu.Lock()
 	r.items[item.ID] = item
@@ -38,7 +215,6 @@ func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pas
 func (r *repository) List() []entity.{{ .Pascal }} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	items := make([]entity.{{ .Pascal }}, 0, len(r.items))
 	for _, item := range r.items {
 		items = append(items, item)
@@ -56,7 +232,6 @@ func (r *repository) Get(id string) (entity.{{ .Pascal }}, bool) {
 func (r *repository) Update(id string, input dto.Update{{ .Pascal }}Request) (entity.{{ .Pascal }}, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	item, ok := r.items[id]
 	if !ok {
 		return entity.{{ .Pascal }}{}, false
@@ -76,3 +251,14 @@ func (r *repository) Delete(id string) bool {
 	delete(r.items, id)
 	return true
 }
+{{ end }}
+
+{{ if ne .Storage.Driver "memory" }}
+func newID() string {
+	return fmt.Sprintf("{{ .Kebab }}-%d", now().UnixNano())
+}
+
+func now() time.Time {
+	return time.Now().UTC()
+}
+{{ end }}

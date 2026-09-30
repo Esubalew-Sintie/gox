@@ -9,16 +9,25 @@ import (
 type Config struct {
 	Port            string
 	ShutdownTimeout time.Duration
+	DatabaseURL     string
+	MongoURI        string
+	MongoDatabase   string
 }
 
 func LoadConfig() Config {
-	port := strings.TrimSpace(os.Getenv("PORT"))
-	if port == "" {
-		port = "8080"
-	}
-
 	return Config{
-		Port:            port,
+		Port:            getenv("PORT", "8080"),
 		ShutdownTimeout: 10 * time.Second,
+		DatabaseURL:     strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		MongoURI:        strings.TrimSpace(os.Getenv("MONGO_URI")),
+		MongoDatabase:   getenv("MONGO_DATABASE", "app"),
 	}
+}
+
+func getenv(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }

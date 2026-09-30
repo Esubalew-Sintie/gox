@@ -4,6 +4,8 @@ import (
 	"context"
 {{ if or .Storage.Postgres .Storage.Mongo .Features.Redis .Features.Kafka }}
 	"fmt"
+{{ end }}
+{{ if or .Features.Redis .Features.Kafka }}
 	"os"
 {{ end }}
 {{ if .Features.Kafka }}
@@ -30,6 +32,7 @@ type Dependencies struct {
 {{ end }}
 {{ if .Storage.Mongo }}
 	Mongo *mongo.Client
+	MongoDatabase *mongo.Database
 {{ end }}
 {{ if .Features.Redis }}
 	Redis *redis.Client
@@ -39,10 +42,10 @@ type Dependencies struct {
 {{ end }}
 }
 
-func InitDependencies(ctx context.Context) (*Dependencies, error) {
+func InitDependencies(ctx context.Context, cfg Config) (*Dependencies, error) {
 	dependencies := &Dependencies{}
 {{ if .Storage.Postgres }}
-	databaseURL := os.Getenv("DATABASE_URL")
+	databaseURL := cfg.DatabaseURL
 	if databaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required for PostgreSQL")
 	}
@@ -57,7 +60,7 @@ func InitDependencies(ctx context.Context) (*Dependencies, error) {
 	dependencies.Postgres = postgres
 {{ end }}
 {{ if .Storage.Mongo }}
-	mongoURI := os.Getenv("MONGO_URI")
+	mongoURI := cfg.MongoURI
 	if mongoURI == "" {
 		_ = dependencies.Close(ctx)
 		return nil, fmt.Errorf("MONGO_URI is required for MongoDB")
@@ -73,6 +76,7 @@ func InitDependencies(ctx context.Context) (*Dependencies, error) {
 		return nil, fmt.Errorf("ping MongoDB: %w", err)
 	}
 	dependencies.Mongo = mongoClient
+	dependencies.MongoDatabase = mongoClient.Database(cfg.MongoDatabase)
 {{ end }}
 {{ if .Features.Redis }}
 	redisAddress := os.Getenv("REDIS_ADDR")

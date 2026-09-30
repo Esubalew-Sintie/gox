@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/esubalew-Sintie/gox/internal/architecture"
 	"github.com/esubalew-Sintie/gox/internal/config"
@@ -28,6 +29,7 @@ type ProjectOptions struct {
 	Module   string
 	Layout   string
 	HTTP     string
+	Database string
 	Postgres bool
 	Mongo    bool
 	Redis    bool
@@ -41,6 +43,7 @@ type projectTemplateData struct {
 	Layout      string
 	HTTP        string
 	Storage     struct {
+		Driver   string
 		Postgres bool
 		Mongo    bool
 	}
@@ -77,6 +80,14 @@ func (g *ProjectGenerator) Generate(options ProjectOptions) error {
 		return fmt.Errorf("unsupported http router: %s", options.HTTP)
 	}
 
+	driver, err := storageDriver(options)
+	if err != nil {
+		return err
+	}
+	options.Database = driver
+	options.Postgres = driver == "postgres"
+	options.Mongo = driver == "mongo"
+
 	name, err := naming.Parse(options.Name)
 	if err != nil {
 		return fmt.Errorf("parse project name: %w", err)
@@ -86,12 +97,7 @@ func (g *ProjectGenerator) Generate(options ProjectOptions) error {
 		return fmt.Errorf("project %q already exists", options.Name)
 	}
 
-	data := projectTemplateData{ProjectName: name.Kebab, Module: options.Module, Layout: options.Layout, HTTP: options.HTTP}
-	data.Storage.Postgres = options.Postgres
-	data.Storage.Mongo = options.Mongo
-	data.Features.Redis = options.Redis
-	data.Features.Kafka = options.Kafka
-
+	data := newProjectTemplateData(name.Kebab, options.Module, options.Layout, options.HTTP, driver, options.Redis, options.Kafka)
 	plan := NewGenerationPlan()
 	for _, file := range projectFiles(options) {
 		content, err := g.renderer.Render(file.template, data)
@@ -120,8 +126,46 @@ func (g *ProjectGenerator) Generate(options ProjectOptions) error {
 	return nil
 }
 
+func newProjectTemplateData(projectName, module, layout, http, driver string, redis, kafka bool) projectTemplateData {
+	data := projectTemplateData{ProjectName: projectName, Module: module, Layout: layout, HTTP: http}
+	data.Storage.Driver = driver
+	data.Storage.Postgres = driver == "postgres"
+	data.Storage.Mongo = driver == "mongo"
+	data.Features.Redis = redis
+	data.Features.Kafka = kafka
+	return data
+}
+
+func storageDriver(options ProjectOptions) (string, error) {
+	driver := strings.ToLower(strings.TrimSpace(options.Database))
+	if driver == "" {
+		switch {
+		case options.Postgres && options.Mongo:
+			return "", fmt.Errorf("choose one storage driver: postgres or mongo")
+		case options.Postgres:
+			driver = "postgres"
+		case options.Mongo:
+			driver = "mongo"
+		default:
+			driver = "memory"
+		}
+	}
+	switch driver {
+	case "memory", "postgres", "postgresql", "mongo", "mongodb":
+		if driver == "postgresql" {
+			return "postgres", nil
+		}
+		if driver == "mongodb" {
+			return "mongo", nil
+		}
+		return driver, nil
+	default:
+		return "", fmt.Errorf("unsupported storage driver %q; supported: memory, postgres, mongo", options.Database)
+	}
+}
+
 func projectFiles(options ProjectOptions) []projectFile {
-	files := []projectFile{
+	return []projectFile{
 		{"project/go.mod.tmpl", "go.mod"},
 		{"project/main.go.tmpl", filepath.Join("cmd", "main.go")},
 		{"project/initiator/initiator.go.tmpl", filepath.Join("initiator", "initiator.go")},
@@ -139,8 +183,8 @@ func projectFiles(options ProjectOptions) []projectFile {
 		{"project/constant/response/model.go.tmpl", filepath.Join("internal", "constant", "response", "model.go")},
 		{"project/constant/response/response.go.tmpl", filepath.Join("internal", "constant", "response", "response.go")},
 		{"project/gox.yaml.tmpl", ".gox.yaml"},
+		{"project/env.example.tmpl", ".env.example"},
 	}
-	return files
 }
 
 func runCommand(dir string, name string, args ...string) error {

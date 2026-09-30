@@ -4,6 +4,7 @@ layout: {{ .Layout }}
 http: {{ .HTTP }}
 
 storage:
+  driver: {{ .Storage.Driver }}
   postgres: {{ .Storage.Postgres }}
   mongo: {{ .Storage.Mongo }}
 

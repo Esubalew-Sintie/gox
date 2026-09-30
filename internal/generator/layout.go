@@ -25,10 +25,10 @@ type moduleLayout struct {
 	wiring []layerWiring
 }
 
-func buildModuleLayout(layout, modulePath string, name *naming.Name) (moduleLayout, error) {
+func buildModuleLayout(layout, modulePath, driver string, name *naming.Name) (moduleLayout, error) {
 	switch architecture.Normalize(layout) {
 	case architecture.LayeredREST:
-		return layeredRESTLayout(modulePath, name), nil
+		return layeredRESTLayout(modulePath, driver, name), nil
 	case architecture.FeatureFirst:
 		return featureFirstLayout(modulePath, name), nil
 	default:
@@ -36,7 +36,7 @@ func buildModuleLayout(layout, modulePath string, name *naming.Name) (moduleLayo
 	}
 }
 
-func layeredRESTLayout(modulePath string, name *naming.Name) moduleLayout {
+func layeredRESTLayout(modulePath, driver string, name *naming.Name) moduleLayout {
 	persistencePath := modulePath + "/internal/storage/persistence"
 	moduleContractPath := modulePath + "/internal/module"
 	handlerContractPath := modulePath + "/internal/handler/rest"
@@ -44,7 +44,6 @@ func layeredRESTLayout(modulePath string, name *naming.Name) moduleLayout {
 	dtoPath := modulePath + "/internal/constant/dto"
 
 	persistenceContract := fmt.Sprintf("type %s interface {\n\tCreate(dto.Create%sRequest) %s.%s\n\tList() []%s.%s\n\tGet(string) (%s.%s, bool)\n\tUpdate(string, dto.Update%sRequest) (%s.%s, bool)\n\tDelete(string) bool\n}", name.Pascal, name.Pascal, name.Snake, name.Pascal, name.Snake, name.Pascal, name.Snake, name.Pascal, name.Pascal, name.Snake, name.Pascal)
-	moduleContract := persistenceContract
 	handlerContract := fmt.Sprintf("type %s interface {\n\tCreate(http.ResponseWriter, *http.Request)\n\tList(http.ResponseWriter, *http.Request)\n\tGet(http.ResponseWriter, *http.Request)\n\tUpdate(http.ResponseWriter, *http.Request)\n\tDelete(http.ResponseWriter, *http.Request)\n\tHealth(http.ResponseWriter, *http.Request)\n}", name.Pascal)
 
 	return moduleLayout{
@@ -59,14 +58,28 @@ func layeredRESTLayout(modulePath string, name *naming.Name) moduleLayout {
 		},
 		wiring: []layerWiring{
 			{filepath.Join("internal", "storage", "persistence", "persistence.go"), []string{fmt.Sprintf("%q", dtoPath), fmt.Sprintf("%q", entityPath)}, "", persistenceContract},
-			{filepath.Join("internal", "module", "module.go"), []string{fmt.Sprintf("%q", dtoPath), fmt.Sprintf("%q", entityPath)}, "", moduleContract},
-			{filepath.Join("internal", "handler", "rest", "handler.go"), []string{`"net/http"`}, "", handlerContract},
-			{"initiator/persistence.go", []string{fmt.Sprintf("%q", persistencePath), fmt.Sprintf("%q", persistencePath+"/"+name.Snake)}, fmt.Sprintf("%s persistence.%s", name.Pascal, name.Pascal), fmt.Sprintf("%s: %s.Init(),", name.Pascal, name.Snake)},
+			{filepath.Join("internal", "module", "module.go"), []string{fmt.Sprintf("%q", dtoPath), fmt.Sprintf("%q", entityPath)}, "", persistenceContract},
+			{filepath.Join("internal", "handler", "rest", "handler.go"), []string{"\"net/http\""}, "", handlerContract},
+			{"initiator/persistence.go", []string{"\"fmt\"", fmt.Sprintf("%q", persistencePath), fmt.Sprintf("%q", persistencePath+"/"+name.Snake)}, fmt.Sprintf("%s persistence.%s", name.Pascal, name.Pascal), persistenceInitialization(driver, name)},
 			{"initiator/module.go", []string{fmt.Sprintf("%q", moduleContractPath), fmt.Sprintf("%q", moduleContractPath+"/"+name.Snake)}, fmt.Sprintf("%s module.%s", name.Pascal, name.Pascal), fmt.Sprintf("%s: %s.Init(persistence.%s),", name.Pascal, name.Snake, name.Pascal)},
 			{"initiator/handler.go", []string{fmt.Sprintf("%q", handlerContractPath), fmt.Sprintf("%q", handlerContractPath+"/http/"+name.Snake)}, fmt.Sprintf("%s rest.%s", name.Pascal, name.Pascal), fmt.Sprintf("%s: %s.Init(module.%s),", name.Pascal, name.Snake, name.Pascal)},
 			{"initiator/routes.go", []string{fmt.Sprintf("%q", modulePath+"/internal/glue/routing/"+name.Snake)}, "", fmt.Sprintf("%s.InitRoutes(router, handlers.%s)", name.Snake, name.Pascal)},
 		},
 	}
+}
+
+func persistenceInitialization(driver string, name *naming.Name) string {
+	argument := ""
+	switch driver {
+	case "postgres":
+		argument = "dependencies.Postgres"
+	case "mongo":
+		argument = "dependencies.MongoDatabase"
+	}
+
+	call := name.Snake + ".Init(" + argument + ")"
+	repository := name.Camel + "Repository"
+	return fmt.Sprintf("%s, err := %s\nif err != nil {\n\treturn Persistence{}, fmt.Errorf(\"initialize %s persistence: %%w\", err)\n}\npersistence.%s = %s", repository, call, name.Snake, name.Pascal, repository)
 }
 
 func featureFirstLayout(modulePath string, name *naming.Name) moduleLayout {
@@ -81,7 +94,7 @@ func featureFirstLayout(modulePath string, name *naming.Name) moduleLayout {
 			{"feature-first/route.go.tmpl", filepath.Join(base, "route.go")},
 		},
 		wiring: []layerWiring{
-			{"initiator/persistence.go", []string{importPath}, fmt.Sprintf("%s *%s.Repository", name.Pascal, name.Snake), fmt.Sprintf("%s: %s.NewRepository(),", name.Pascal, name.Snake)},
+			{"initiator/persistence.go", []string{importPath}, fmt.Sprintf("%s *%s.Repository", name.Pascal, name.Snake), fmt.Sprintf("persistence.%s = %s.NewRepository()", name.Pascal, name.Snake)},
 			{"initiator/module.go", []string{importPath}, fmt.Sprintf("%s *%s.Service", name.Pascal, name.Snake), fmt.Sprintf("%s: %s.NewService(persistence.%s),", name.Pascal, name.Snake, name.Pascal)},
 			{"initiator/handler.go", []string{importPath}, fmt.Sprintf("%s *%s.Handler", name.Pascal, name.Snake), fmt.Sprintf("%s: %s.NewHandler(module.%s),", name.Pascal, name.Snake, name.Pascal)},
 			{"initiator/routes.go", []string{importPath}, "", fmt.Sprintf("%s.RegisterRoutes(router, handlers.%s)", name.Snake, name.Pascal)},

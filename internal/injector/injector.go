@@ -134,28 +134,14 @@ func (i *Injector) Remove(source []byte, marker Marker, content string) ([]byte,
 
 	regionStart := startIndex + len(start)
 	region := source[regionStart:endIndex]
-	needle := []byte(strings.TrimSpace(content))
-	position := bytes.Index(region, needle)
-	if position == -1 {
+	updatedRegion, removed := removeInjectedContent(region, content)
+	if !removed {
 		return source, nil
-	}
-
-	lineStart := position
-	for lineStart > 0 && region[lineStart-1] != '\n' {
-		lineStart--
-	}
-	lineEnd := position + len(needle)
-	for lineEnd < len(region) && region[lineEnd] != '\n' {
-		lineEnd++
-	}
-	if lineEnd < len(region) {
-		lineEnd++
 	}
 
 	var result bytes.Buffer
 	result.Write(source[:regionStart])
-	result.Write(region[:lineStart])
-	result.Write(region[lineEnd:])
+	result.Write(updatedRegion)
 	result.Write(source[endIndex:])
 
 	formatted, err := format.Source(result.Bytes())
@@ -163,6 +149,25 @@ func (i *Injector) Remove(source []byte, marker Marker, content string) ([]byte,
 		return nil, fmt.Errorf("format removed source: %w", err)
 	}
 	return formatted, nil
+}
+
+func removeInjectedContent(region []byte, content string) ([]byte, bool) {
+	regionLines := strings.Split(string(region), "\n")
+	contentLines := strings.Split(strings.TrimSpace(content), "\n")
+	for start := 0; start+len(contentLines) <= len(regionLines); start++ {
+		matches := true
+		for index, contentLine := range contentLines {
+			if strings.TrimSpace(regionLines[start+index]) != strings.TrimSpace(contentLine) {
+				matches = false
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		return []byte(strings.Join(append(regionLines[:start], regionLines[start+len(contentLines):]...), "\n")), true
+	}
+	return region, false
 }
 
 func removeImport(source []byte, content string) ([]byte, error) {

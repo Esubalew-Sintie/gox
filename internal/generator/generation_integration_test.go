@@ -140,7 +140,6 @@ func TestGeneratedProjectBuildsWithSelectedCapabilities(t *testing.T) {
 		Module:   "example.com/" + projectName,
 		Layout:   architecture.LayeredREST,
 		Postgres: true,
-		Mongo:    true,
 		Redis:    true,
 		Kafka:    true,
 	}); err != nil {
@@ -148,5 +147,49 @@ func TestGeneratedProjectBuildsWithSelectedCapabilities(t *testing.T) {
 	}
 	if err := runCommand(projectName, "go", "test", "./..."); err != nil {
 		t.Fatalf("test generated project: %v", err)
+	}
+}
+
+func TestGeneratedProjectBuildsForDatabaseDriver(t *testing.T) {
+	templates, err := renderer.LoadTemplates(os.DirFS("../../initiator/templates"))
+	if err != nil {
+		t.Fatalf("load templates: %v", err)
+	}
+
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalDir)
+	})
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+
+	fs := filesystem.New()
+	cfg := config.NewConfigManager(fs)
+	projectGen := NewProjectGenerator(fs, cfg, renderer.New(templates))
+	moduleGen := NewModuleGenerator(fs, cfg, renderer.New(templates), injector.New())
+
+	for _, driver := range []string{"postgres", "mongo"} {
+		t.Run(driver, func(t *testing.T) {
+			projectName := "sample-" + driver
+			projectPath := filepath.Join(".", projectName)
+			if err := projectGen.Generate(ProjectOptions{
+				Name:     projectName,
+				Module:   "example.com/" + projectName,
+				Layout:   architecture.LayeredREST,
+				Database: driver,
+			}); err != nil {
+				t.Fatalf("generate project: %v", err)
+			}
+			if err := moduleGen.Generate(projectPath, ModuleOptions{Name: "account"}); err != nil {
+				t.Fatalf("generate module: %v", err)
+			}
+			if err := runCommand(projectPath, "go", "test", "./..."); err != nil {
+				t.Fatalf("test generated project: %v", err)
+			}
+		})
 	}
 }

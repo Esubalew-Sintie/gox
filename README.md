@@ -6,7 +6,7 @@ the member-users project structure.
 ## Create A Project
 
 Run the command without a project name or module path to choose the HTTP router,
-storage providers, optional infrastructure, and Git setup in the terminal:
+persistence driver, optional infrastructure, and Git setup in the terminal:
 
 \`\`\`sh
 gox new
@@ -25,32 +25,31 @@ Supported layouts:
   contracts plus per-resource implementations.
 - \`feature-first\`: a self-contained feature package.
 
-Supported HTTP routers: \`net/http\` (default), \`chi\`, and \`gin\`. The
-selected router is stored in \`.gox.yaml\`, and generated resources use its
-routing conventions automatically.
+Supported HTTP routers: \`net/http\` (default), \`chi\`, and \`gin\`.
 
-## Infrastructure Lifecycle
+## Database Persistence
 
-PostgreSQL, MongoDB, Redis, and Kafka are selected during \`gox new\` or added
-later:
+Choose one primary persistence driver with \`--db\`:
 
-\`\`\`sh
-cd members
-gox add postgres
-gox add mongo
-gox add redis
-gox add kafka
-\`\`\`
+- \`memory\` (default): an in-process repository for development and tests.
+- \`postgres\`: repositories use \`pgxpool\` and perform SQL CRUD.
+- \`mongo\`: repositories use MongoDB collections and perform document CRUD.
 
-The generator creates \`initiator/dependencies.go\`. It owns constructing,
-exposing, checking, and gracefully closing the selected clients, so connection
-lifecycle stays in the composition root instead of being hidden in feature
-packages. Required environment variables are:
+The choice is stored as \`storage.driver\` in \`.gox.yaml\`. New resources keep
+the same database-independent persistence interface; only their repository
+implementation changes. Generated \`initiator/persistence.go\` selects and wires
+the corresponding constructor.
+
+Database lifecycle is owned by \`initiator/dependencies.go\`. It opens, pings,
+exposes, and closes the selected database connection. Generated \`.env.example\`
+contains the required settings:
 
 - PostgreSQL: \`DATABASE_URL\`
-- MongoDB: \`MONGO_URI\`
-- Redis: \`REDIS_ADDR\`, optionally \`REDIS_PASSWORD\`
-- Kafka: \`KAFKA_BROKERS\` and \`KAFKA_TOPIC\`
+- MongoDB: \`MONGO_URI\`, optionally \`MONGO_DATABASE\`
+
+Only the selected database driver's Go dependency is included in \`go.mod\`.
+Switching a database after resources are generated is intentionally not
+automatic, because it changes real storage semantics and needs a migration.
 
 ## Generate A Resource
 

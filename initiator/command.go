@@ -62,13 +62,7 @@ func newCmd(d *deps) *cobra.Command {
 			opts.HTTP = http
 			opts.Git = git
 
-			// Resolve db flag
-			switch db {
-			case "postgres", "postgresql":
-				opts.Postgres = true
-			case "mongo", "mongodb":
-				opts.Mongo = true
-			}
+			opts.Database = db
 
 			// Resolve --with flag (e.g. redis,kafka)
 			if withOpts != "" {
@@ -78,15 +72,9 @@ func newCmd(d *deps) *cobra.Command {
 						opts.Redis = true
 					case "kafka":
 						opts.Kafka = true
-					case "postgres", "postgresql":
-						opts.Postgres = true
-					case "mongo", "mongodb":
-						opts.Mongo = true
 					}
 				}
 			}
-
-			_ = http // stored for future multi-framework support
 
 			return cli.RunNew(d.projectGen, opts)
 		},
@@ -95,8 +83,8 @@ func newCmd(d *deps) *cobra.Command {
 	cmd.Flags().StringVar(&modulePath, "module", "", "Go module path (e.g. github.com/acme/api)")
 	cmd.Flags().StringVar(&layout, "layout", "layered-rest", "Architecture: layered-rest, feature-first")
 	cmd.Flags().StringVar(&http, "http", "", "HTTP router: net/http, chi, gin")
-	cmd.Flags().StringVar(&db, "db", "", "Storage: postgres, mongo")
-	cmd.Flags().StringVar(&withOpts, "with", "", "Optional capabilities: redis,kafka,mongo,postgres")
+	cmd.Flags().StringVar(&db, "db", "", "Primary persistence driver: memory, postgres, mongo")
+	cmd.Flags().StringVar(&withOpts, "with", "", "Optional capabilities: redis,kafka")
 	cmd.Flags().BoolVar(&git, "git", false, "Initialize a Git repository")
 
 	return cmd
@@ -111,8 +99,6 @@ func addCmd(d *deps) *cobra.Command {
 		Long: `Add optional infrastructure or capabilities to an existing project.
 
 Examples:
-  gox add postgres
-  gox add mongo
   gox add redis
   gox add kafka`,
 		Args: cobra.ExactArgs(1),

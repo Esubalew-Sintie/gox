@@ -25,8 +25,9 @@ type Config struct {
 }
 
 type StorageConfig struct {
-	Postgres bool `yaml:"postgres"`
-	Mongo    bool `yaml:"mongo"`
+	Driver   string `yaml:"driver"`
+	Postgres bool   `yaml:"postgres"`
+	Mongo    bool   `yaml:"mongo"`
 }
 
 type FeaturesConfig struct {
@@ -51,6 +52,9 @@ func (m *ConfigManager) Load(projectPath string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	if err := Normalize(&cfg); err != nil {
+		return nil, err
+	}
 	if err := Validate(&cfg); err != nil {
 		return nil, err
 	}
@@ -58,6 +62,9 @@ func (m *ConfigManager) Load(projectPath string) (*Config, error) {
 }
 
 func (m *ConfigManager) Save(projectPath string, cfg *Config) error {
+	if err := Normalize(cfg); err != nil {
+		return err
+	}
 	if err := Validate(cfg); err != nil {
 		return err
 	}
@@ -68,6 +75,28 @@ func (m *ConfigManager) Save(projectPath string, cfg *Config) error {
 	if err := m.fs.WriteFile(filepath.Join(projectPath, FileName), data); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
+	return nil
+}
+
+func Normalize(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("%w: config is nil", errors.ErrInvalidConfig)
+	}
+	cfg.Storage.Driver = strings.ToLower(strings.TrimSpace(cfg.Storage.Driver))
+	if cfg.Storage.Driver == "" {
+		switch {
+		case cfg.Storage.Postgres && cfg.Storage.Mongo:
+			return fmt.Errorf("%w: choose one storage driver", errors.ErrInvalidConfig)
+		case cfg.Storage.Postgres:
+			cfg.Storage.Driver = "postgres"
+		case cfg.Storage.Mongo:
+			cfg.Storage.Driver = "mongo"
+		default:
+			cfg.Storage.Driver = "memory"
+		}
+	}
+	cfg.Storage.Postgres = cfg.Storage.Driver == "postgres"
+	cfg.Storage.Mongo = cfg.Storage.Driver == "mongo"
 	return nil
 }
 
@@ -88,6 +117,11 @@ func Validate(cfg *Config) error {
 	case "net/http", "chi", "gin":
 	default:
 		return fmt.Errorf("%w: unsupported http router %q", errors.ErrInvalidConfig, cfg.HTTP)
+	}
+	switch cfg.Storage.Driver {
+	case "memory", "postgres", "mongo":
+	default:
+		return fmt.Errorf("%w: unsupported storage driver %q", errors.ErrInvalidConfig, cfg.Storage.Driver)
 	}
 	return nil
 }

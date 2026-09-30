@@ -11,23 +11,22 @@ import (
 
 func Initiator() {
 	cfg := LoadConfig()
-	dependencies, err := InitDependencies(context.Background())
+	dependencies, err := InitDependencies(context.Background(), cfg)
 	if err != nil {
 		log.Fatalf("initialize dependencies: %v", err)
 	}
+	persistence, err := InitPersistence(dependencies)
+	if err != nil {
+		log.Fatalf("initialize persistence: %v", err)
+	}
 
-	persistence := InitPersistence()
 	modules := InitModule(persistence)
 	handlers := InitHandler(modules)
 	router := InitRoutes(handlers)
-	server := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
-	}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: router}
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
 		log.Printf("server listening on %s", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -39,7 +38,6 @@ func Initiator() {
 	<-signals
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
-
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
 	}

@@ -1,5 +1,6 @@
 package {{ .Snake }}
 
+{{ if eq .Storage.Driver "memory" }}
 import (
 	"net/http"
 	"net/http/httptest"
@@ -8,9 +9,18 @@ import (
 	module "{{ .ModulePath }}/internal/module/{{ .Snake }}"
 	persistence "{{ .ModulePath }}/internal/storage/persistence/{{ .Snake }}"
 )
-
+{{ else }}
+import "testing"
+{{ end }}
 func TestHealth(t *testing.T) {
-	handler := Init(module.Init(persistence.Init()))
+{{ if ne .Storage.Driver "memory" }}
+	t.Skip("health handler unit test requires a configured {{ .Storage.Driver }} database")
+{{ else }}
+	repository, err := persistence.Init()
+	if err != nil {
+		t.Fatalf("initialize persistence: %v", err)
+	}
+	handler := Init(module.Init(repository))
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/{{ .Plural }}/health", nil)
 
@@ -19,4 +29,5 @@ func TestHealth(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
+{{ end }}
 }

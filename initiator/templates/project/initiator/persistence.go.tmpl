@@ -10,9 +10,12 @@ type Persistence struct {
 	// gox:fields:end
 }
 
-func InitPersistence() Persistence {
-	return Persistence{
-		// gox:init:start
-		// gox:init:end
-	}
+func InitPersistence(dependencies *Dependencies) (Persistence, error) {
+	_ = dependencies
+	persistence := Persistence{}
+
+	// gox:init:start
+	// gox:init:end
+
+	return persistence, nil
 }

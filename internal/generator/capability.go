@@ -9,7 +9,7 @@ import (
 	"github.com/esubalew-Sintie/gox/internal/renderer"
 )
 
-// CapabilityGenerator adds infrastructure clients to the initiator composition root.
+// CapabilityGenerator manages optional non-persistence capabilities.
 type CapabilityGenerator struct {
 	fs       *filesystem.FileSystem
 	config   *config.ConfigManager
@@ -17,17 +17,8 @@ type CapabilityGenerator struct {
 	executor *Executor
 }
 
-func NewCapabilityGenerator(
-	fs *filesystem.FileSystem,
-	configManager *config.ConfigManager,
-	renderer *renderer.Renderer,
-) *CapabilityGenerator {
-	return &CapabilityGenerator{
-		fs:       fs,
-		config:   configManager,
-		renderer: renderer,
-		executor: NewExecutor(fs),
-	}
+func NewCapabilityGenerator(fs *filesystem.FileSystem, configManager *config.ConfigManager, renderer *renderer.Renderer) *CapabilityGenerator {
+	return &CapabilityGenerator{fs: fs, config: configManager, renderer: renderer, executor: NewExecutor(fs)}
 }
 
 type CapabilityOptions struct {
@@ -41,16 +32,6 @@ type capabilitySpec struct {
 }
 
 var capabilitySpecs = map[string]capabilitySpec{
-	"postgres": {
-		module:  "github.com/jackc/pgx/v5@v5.7.6",
-		enabled: func(cfg *config.Config) bool { return cfg.Storage.Postgres },
-		enable:  func(cfg *config.Config) { cfg.Storage.Postgres = true },
-	},
-	"mongo": {
-		module:  "go.mongodb.org/mongo-driver@v1.17.6",
-		enabled: func(cfg *config.Config) bool { return cfg.Storage.Mongo },
-		enable:  func(cfg *config.Config) { cfg.Storage.Mongo = true },
-	},
 	"redis": {
 		module:  "github.com/redis/go-redis/v9@v9.12.1",
 		enabled: func(cfg *config.Config) bool { return cfg.Features.Redis },
@@ -63,12 +44,15 @@ var capabilitySpecs = map[string]capabilitySpec{
 	},
 }
 
-// Add updates the generator-owned initiator dependency lifecycle and config.
 func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions) error {
-	name := normalizeCapability(options.Name)
+	name := strings.ToLower(strings.TrimSpace(options.Name))
+	if name == "postgres" || name == "postgresql" || name == "mongo" || name == "mongodb" {
+		return fmt.Errorf("database drivers are selected when creating a project; use gox new --db memory|postgres|mongo")
+	}
+
 	spec, ok := capabilitySpecs[name]
 	if !ok {
-		return fmt.Errorf("unknown capability %q; supported: postgres, mongo, redis, kafka", options.Name)
+		return fmt.Errorf("unknown capability %q; supported: redis, kafka", options.Name)
 	}
 
 	cfg, err := g.config.Load(projectPath)
@@ -78,14 +62,9 @@ func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions)
 	if spec.enabled(cfg) {
 		return fmt.Errorf("%s is already configured for this project", name)
 	}
-
 	spec.enable(cfg)
-	data := projectTemplateData{Module: cfg.Module}
-	data.Storage.Postgres = cfg.Storage.Postgres
-	data.Storage.Mongo = cfg.Storage.Mongo
-	data.Features.Redis = cfg.Features.Redis
-	data.Features.Kafka = cfg.Features.Kafka
 
+	data := newProjectTemplateData("", cfg.Module, cfg.Layout, cfg.HTTP, cfg.Storage.Driver, cfg.Features.Redis, cfg.Features.Kafka)
 	content, err := g.renderer.Render("project/initiator/dependencies.go.tmpl", data)
 	if err != nil {
 		return fmt.Errorf("render initiator dependencies: %w", err)
@@ -100,7 +79,6 @@ func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions)
 	} else if err := plan.AddCreate(dependencyPath, content); err != nil {
 		return err
 	}
-
 	if err := g.executor.Execute(projectPath, plan); err != nil {
 		return fmt.Errorf("write initiator dependencies: %w", err)
 	}
@@ -110,19 +88,5 @@ func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions)
 	if err := runCommand(projectPath, "go", "get", spec.module); err != nil {
 		return fmt.Errorf("add %s dependency: %w", name, err)
 	}
-	if err := runCommand(projectPath, "go", "mod", "tidy"); err != nil {
-		return fmt.Errorf("tidy module after adding %s: %w", name, err)
-	}
-	return nil
-}
-
-func normalizeCapability(name string) string {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "postgresql":
-		return "postgres"
-	case "mongodb":
-		return "mongo"
-	default:
-		return strings.ToLower(strings.TrimSpace(name))
-	}
+	return runCommand(projectPath, "go", "mod", "tidy")
 }
