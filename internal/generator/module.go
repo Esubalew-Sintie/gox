@@ -80,9 +80,12 @@ func (g *ModuleGenerator) inject(projectPath string, plan *GenerationPlan, wirin
 		return fmt.Errorf("read %s: %w", wiring.path, err)
 	}
 
-	updated, err := g.injector.Inject(source, injector.ImportsMarker, wiring.importPath)
-	if err != nil {
-		return fmt.Errorf("inject import into %s: %w", wiring.path, err)
+	updated := source
+	for _, importPath := range wiring.imports {
+		updated, err = g.injector.Inject(updated, injector.ImportsMarker, importPath)
+		if err != nil {
+			return fmt.Errorf("inject import into %s: %w", wiring.path, err)
+		}
 	}
 
 	if wiring.field != "" {
@@ -164,10 +167,7 @@ func (g *ModuleGenerator) removeWiring(projectPath string, plan *GenerationPlan,
 		return fmt.Errorf("read %s: %w", wiring.path, err)
 	}
 
-	updated, err := g.injector.Remove(source, injector.ImportsMarker, wiring.importPath)
-	if err != nil {
-		return fmt.Errorf("remove import from %s: %w", wiring.path, err)
-	}
+	updated := source
 	if wiring.field != "" {
 		updated, err = g.injector.Remove(updated, injector.FieldsMarker, wiring.field)
 		if err != nil {
@@ -177,6 +177,12 @@ func (g *ModuleGenerator) removeWiring(projectPath string, plan *GenerationPlan,
 	updated, err = g.injector.Remove(updated, injector.InitMarker, wiring.init)
 	if err != nil {
 		return fmt.Errorf("remove initialization from %s: %w", wiring.path, err)
+	}
+	for _, importPath := range wiring.imports {
+		updated, err = g.injector.Remove(updated, injector.ImportsMarker, importPath)
+		if err != nil {
+			return fmt.Errorf("remove import from %s: %w", wiring.path, err)
+		}
 	}
 	return plan.AddModify(wiring.path, updated)
 }

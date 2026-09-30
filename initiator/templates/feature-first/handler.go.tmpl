@@ -4,17 +4,75 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	apperrors "{{ .ModulePath }}/internal/constant/errors"
+	"{{ .ModulePath }}/internal/constant/response"
 )
 
-type Handler struct { service *Service }
+type Handler struct{ service *Service }
+
 func NewHandler(service *Service) *Handler { return &Handler{service: service} }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) { var input Create{{ .Pascal }}Request; if !decodeJSON(w, r, &input) { return }; if strings.TrimSpace(input.Name) == "" { writeError(w, http.StatusBadRequest, "name is required"); return }; writeJSON(w, http.StatusCreated, h.service.Create(input)) }
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, h.service.List()) }
-func (h *Handler) Get(w http.ResponseWriter, r *http.Request) { item, ok := h.service.Get(r.PathValue("id")); if !ok { writeError(w, http.StatusNotFound, "{{ .Pascal }} not found"); return }; writeJSON(w, http.StatusOK, item) }
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) { var input Update{{ .Pascal }}Request; if !decodeJSON(w, r, &input) { return }; if strings.TrimSpace(input.Name) == "" { writeError(w, http.StatusBadRequest, "name is required"); return }; item, ok := h.service.Update(r.PathValue("id"), input); if !ok { writeError(w, http.StatusNotFound, "{{ .Pascal }} not found"); return }; writeJSON(w, http.StatusOK, item) }
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) { if !h.service.Delete(r.PathValue("id")) { writeError(w, http.StatusNotFound, "{{ .Pascal }} not found"); return }; w.WriteHeader(http.StatusNoContent) }
-func (h *Handler) Health(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, map[string]string{"status":"ok"}) }
-func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool { decoder := json.NewDecoder(r.Body); decoder.DisallowUnknownFields(); if err := decoder.Decode(target); err != nil { writeError(w, http.StatusBadRequest, "invalid JSON request body"); return false }; return true }
-func writeError(w http.ResponseWriter, status int, message string) { writeJSON(w, status, map[string]string{"error":message}) }
-func writeJSON(w http.ResponseWriter, status int, payload any) { w.Header().Set("Content-Type", "application/json"); w.WriteHeader(status); _ = json.NewEncoder(w).Encode(payload) }
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	var input Create{{ .Pascal }}Request
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		response.SendError(w, apperrors.BadRequest("name is required"))
+		return
+	}
+	response.SendSuccess(w, http.StatusCreated, "{{ .Pascal }} created", h.service.Create(input), nil)
+}
+
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	response.SendSuccess(w, http.StatusOK, "{{ .Pascal }} list", h.service.List(), nil)
+}
+
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	item, ok := h.service.Get(r.PathValue("id"))
+	if !ok {
+		response.SendError(w, apperrors.NotFound("{{ .Pascal }} not found"))
+		return
+	}
+	response.SendSuccess(w, http.StatusOK, "{{ .Pascal }} found", item, nil)
+}
+
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	var input Update{{ .Pascal }}Request
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		response.SendError(w, apperrors.BadRequest("name is required"))
+		return
+	}
+	item, ok := h.service.Update(r.PathValue("id"), input)
+	if !ok {
+		response.SendError(w, apperrors.NotFound("{{ .Pascal }} not found"))
+		return
+	}
+	response.SendSuccess(w, http.StatusOK, "{{ .Pascal }} updated", item, nil)
+}
+
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	if !h.service.Delete(r.PathValue("id")) {
+		response.SendError(w, apperrors.NotFound("{{ .Pascal }} not found"))
+		return
+	}
+	response.SendSuccess(w, http.StatusOK, "{{ .Pascal }} deleted", nil, nil)
+}
+
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+	response.SendSuccess(w, http.StatusOK, "{{ .Pascal }} healthy", map[string]string{"status": "ok"}, nil)
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		response.SendError(w, apperrors.BadRequest("invalid JSON request body"))
+		return false
+	}
+	return true
+}

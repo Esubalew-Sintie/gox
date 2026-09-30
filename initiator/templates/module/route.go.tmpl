@@ -9,10 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 {{ end }}
 
-	handler "{{ .ModulePath }}/internal/handler/rest/http/{{ .Snake }}"
+	rest "{{ .ModulePath }}/internal/handler/rest"
 )
 
-func InitRoutes(router {{ if eq .HTTP "net/http" }}*http.ServeMux{{ else if eq .HTTP "chi" }}chi.Router{{ else }}gin.IRouter{{ end }}, h *handler.Handler) {
+func InitRoutes(router {{ if eq .HTTP "net/http" }}*http.ServeMux{{ else if eq .HTTP "chi" }}chi.Router{{ else }}gin.IRouter{{ end }}, h rest.{{ .Pascal }}) {
 {{ if eq .HTTP "net/http" }}
 	router.HandleFunc("POST /{{ .Plural }}", h.Create)
 	router.HandleFunc("GET /{{ .Plural }}", h.List)

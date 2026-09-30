@@ -11,14 +11,18 @@ import (
 
 func Initiator() {
 	cfg := LoadConfig()
+	dependencies, err := InitDependencies(context.Background())
+	if err != nil {
+		log.Fatalf("initialize dependencies: %v", err)
+	}
+
 	persistence := InitPersistence()
 	modules := InitModule(persistence)
 	handlers := InitHandler(modules)
-	mux := InitRoutes(handlers)
-
+	router := InitRoutes(handlers)
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: mux,
+		Handler: router,
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -38,5 +42,8 @@ func Initiator() {
 
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
+	}
+	if err := dependencies.Close(ctx); err != nil {
+		log.Printf("dependency shutdown failed: %v", err)
 	}
 }

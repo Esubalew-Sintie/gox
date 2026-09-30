@@ -2,7 +2,6 @@ package generator
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/esubalew-Sintie/gox/internal/config"
@@ -10,7 +9,7 @@ import (
 	"github.com/esubalew-Sintie/gox/internal/renderer"
 )
 
-// CapabilityGenerator adds optional infrastructure clients to existing projects.
+// CapabilityGenerator adds infrastructure clients to the initiator composition root.
 type CapabilityGenerator struct {
 	fs       *filesystem.FileSystem
 	config   *config.ConfigManager
@@ -36,54 +35,37 @@ type CapabilityOptions struct {
 }
 
 type capabilitySpec struct {
-	template string
-	path     string
-	module   string
-	enabled  func(*config.Config) bool
-	enable   func(*config.Config)
+	module  string
+	enabled func(*config.Config) bool
+	enable  func(*config.Config)
 }
 
 var capabilitySpecs = map[string]capabilitySpec{
 	"postgres": {
-		template: "capability/postgres/client.go.tmpl",
-		path:     filepath.Join("internal", "infrastructure", "postgres", "client.go"),
-		module:   "github.com/jackc/pgx/v5@v5.7.6",
-		enabled:  func(cfg *config.Config) bool { return cfg.Storage.Postgres },
-		enable:   func(cfg *config.Config) { cfg.Storage.Postgres = true },
+		module:  "github.com/jackc/pgx/v5@v5.7.6",
+		enabled: func(cfg *config.Config) bool { return cfg.Storage.Postgres },
+		enable:  func(cfg *config.Config) { cfg.Storage.Postgres = true },
 	},
 	"mongo": {
-		template: "capability/mongo/client.go.tmpl",
-		path:     filepath.Join("internal", "infrastructure", "mongo", "client.go"),
-		module:   "go.mongodb.org/mongo-driver@v1.17.6",
-		enabled:  func(cfg *config.Config) bool { return cfg.Storage.Mongo },
-		enable:   func(cfg *config.Config) { cfg.Storage.Mongo = true },
+		module:  "go.mongodb.org/mongo-driver@v1.17.6",
+		enabled: func(cfg *config.Config) bool { return cfg.Storage.Mongo },
+		enable:  func(cfg *config.Config) { cfg.Storage.Mongo = true },
 	},
 	"redis": {
-		template: "capability/redis/client.go.tmpl",
-		path:     filepath.Join("internal", "infrastructure", "redis", "client.go"),
-		module:   "github.com/redis/go-redis/v9@v9.12.1",
-		enabled:  func(cfg *config.Config) bool { return cfg.Features.Redis },
-		enable:   func(cfg *config.Config) { cfg.Features.Redis = true },
+		module:  "github.com/redis/go-redis/v9@v9.12.1",
+		enabled: func(cfg *config.Config) bool { return cfg.Features.Redis },
+		enable:  func(cfg *config.Config) { cfg.Features.Redis = true },
 	},
 	"kafka": {
-		template: "capability/kafka/producer.go.tmpl",
-		path:     filepath.Join("internal", "infrastructure", "kafka", "producer.go"),
-		module:   "github.com/segmentio/kafka-go@v0.4.47",
-		enabled:  func(cfg *config.Config) bool { return cfg.Features.Kafka },
-		enable:   func(cfg *config.Config) { cfg.Features.Kafka = true },
+		module:  "github.com/segmentio/kafka-go@v0.4.47",
+		enabled: func(cfg *config.Config) bool { return cfg.Features.Kafka },
+		enable:  func(cfg *config.Config) { cfg.Features.Kafka = true },
 	},
 }
 
-// Add writes a generated adapter, records the capability, and adds its module.
+// Add updates the generator-owned initiator dependency lifecycle and config.
 func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions) error {
-	name := strings.ToLower(strings.TrimSpace(options.Name))
-	if name == "postgresql" {
-		name = "postgres"
-	}
-	if name == "mongodb" {
-		name = "mongo"
-	}
-
+	name := normalizeCapability(options.Name)
 	spec, ok := capabilitySpecs[name]
 	if !ok {
 		return fmt.Errorf("unknown capability %q; supported: postgres, mongo, redis, kafka", options.Name)
@@ -97,19 +79,31 @@ func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions)
 		return fmt.Errorf("%s is already configured for this project", name)
 	}
 
-	content, err := g.renderer.Render(spec.template, struct{}{})
+	spec.enable(cfg)
+	data := projectTemplateData{Module: cfg.Module}
+	data.Storage.Postgres = cfg.Storage.Postgres
+	data.Storage.Mongo = cfg.Storage.Mongo
+	data.Features.Redis = cfg.Features.Redis
+	data.Features.Kafka = cfg.Features.Kafka
+
+	content, err := g.renderer.Render("project/initiator/dependencies.go.tmpl", data)
 	if err != nil {
-		return fmt.Errorf("render %s: %w", name, err)
-	}
-	plan := NewGenerationPlan()
-	if err := plan.AddCreate(spec.path, content); err != nil {
-		return err
-	}
-	if err := g.executor.Execute(projectPath, plan); err != nil {
-		return fmt.Errorf("write %s adapter: %w", name, err)
+		return fmt.Errorf("render initiator dependencies: %w", err)
 	}
 
-	spec.enable(cfg)
+	plan := NewGenerationPlan()
+	const dependencyPath = "initiator/dependencies.go"
+	if g.fs.Exists(projectPath + "/" + dependencyPath) {
+		if err := plan.AddModify(dependencyPath, content); err != nil {
+			return err
+		}
+	} else if err := plan.AddCreate(dependencyPath, content); err != nil {
+		return err
+	}
+
+	if err := g.executor.Execute(projectPath, plan); err != nil {
+		return fmt.Errorf("write initiator dependencies: %w", err)
+	}
 	if err := g.config.Save(projectPath, cfg); err != nil {
 		return fmt.Errorf("save project config: %w", err)
 	}
@@ -120,4 +114,15 @@ func (g *CapabilityGenerator) Add(projectPath string, options CapabilityOptions)
 		return fmt.Errorf("tidy module after adding %s: %w", name, err)
 	}
 	return nil
+}
+
+func normalizeCapability(name string) string {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "postgresql":
+		return "postgres"
+	case "mongodb":
+		return "mongo"
+	default:
+		return strings.ToLower(strings.TrimSpace(name))
+	}
 }

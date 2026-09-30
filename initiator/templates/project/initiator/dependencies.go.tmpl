@@ -1,0 +1,138 @@
+package initiator
+
+import (
+	"context"
+{{ if or .Storage.Postgres .Storage.Mongo .Features.Redis .Features.Kafka }}
+	"fmt"
+	"os"
+{{ end }}
+{{ if .Features.Kafka }}
+	"strings"
+{{ end }}
+{{ if .Storage.Postgres }}
+	"github.com/jackc/pgx/v5/pgxpool"
+{{ end }}
+{{ if .Storage.Mongo }}
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+{{ end }}
+{{ if .Features.Redis }}
+	"github.com/redis/go-redis/v9"
+{{ end }}
+{{ if .Features.Kafka }}
+	kafkago "github.com/segmentio/kafka-go"
+{{ end }}
+)
+
+type Dependencies struct {
+{{ if .Storage.Postgres }}
+	Postgres *pgxpool.Pool
+{{ end }}
+{{ if .Storage.Mongo }}
+	Mongo *mongo.Client
+{{ end }}
+{{ if .Features.Redis }}
+	Redis *redis.Client
+{{ end }}
+{{ if .Features.Kafka }}
+	Kafka *kafkago.Writer
+{{ end }}
+}
+
+func InitDependencies(ctx context.Context) (*Dependencies, error) {
+	dependencies := &Dependencies{}
+{{ if .Storage.Postgres }}
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required for PostgreSQL")
+	}
+	postgres, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
+	}
+	if err := postgres.Ping(ctx); err != nil {
+		postgres.Close()
+		return nil, fmt.Errorf("ping PostgreSQL: %w", err)
+	}
+	dependencies.Postgres = postgres
+{{ end }}
+{{ if .Storage.Mongo }}
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		_ = dependencies.Close(ctx)
+		return nil, fmt.Errorf("MONGO_URI is required for MongoDB")
+	}
+	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		_ = dependencies.Close(ctx)
+		return nil, fmt.Errorf("connect MongoDB: %w", err)
+	}
+	if err := mongoClient.Ping(ctx, nil); err != nil {
+		_ = mongoClient.Disconnect(ctx)
+		_ = dependencies.Close(ctx)
+		return nil, fmt.Errorf("ping MongoDB: %w", err)
+	}
+	dependencies.Mongo = mongoClient
+{{ end }}
+{{ if .Features.Redis }}
+	redisAddress := os.Getenv("REDIS_ADDR")
+	if redisAddress == "" {
+		_ = dependencies.Close(ctx)
+		return nil, fmt.Errorf("REDIS_ADDR is required for Redis")
+	}
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     redisAddress,
+		Password: os.Getenv("REDIS_PASSWORD"),
+	})
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		_ = redisClient.Close()
+		_ = dependencies.Close(ctx)
+		return nil, fmt.Errorf("ping Redis: %w", err)
+	}
+	dependencies.Redis = redisClient
+{{ end }}
+{{ if .Features.Kafka }}
+	kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	kafkaTopic := os.Getenv("KAFKA_TOPIC")
+	if kafkaBrokers[0] == "" || kafkaTopic == "" {
+		_ = dependencies.Close(ctx)
+		return nil, fmt.Errorf("KAFKA_BROKERS and KAFKA_TOPIC are required for Kafka")
+	}
+	dependencies.Kafka = &kafkago.Writer{
+		Addr:     kafkago.TCP(kafkaBrokers...),
+		Topic:    kafkaTopic,
+		Balancer: &kafkago.LeastBytes{},
+	}
+{{ end }}
+	return dependencies, nil
+}
+
+func (d *Dependencies) Close(ctx context.Context) error {
+{{ if .Features.Kafka }}
+	if d.Kafka != nil {
+		if err := d.Kafka.Close(); err != nil {
+			return err
+		}
+	}
+{{ end }}
+{{ if .Features.Redis }}
+	if d.Redis != nil {
+		if err := d.Redis.Close(); err != nil {
+			return err
+		}
+	}
+{{ end }}
+{{ if .Storage.Mongo }}
+	if d.Mongo != nil {
+		if err := d.Mongo.Disconnect(ctx); err != nil {
+			return err
+		}
+	}
+{{ end }}
+{{ if .Storage.Postgres }}
+	if d.Postgres != nil {
+		d.Postgres.Close()
+	}
+{{ end }}
+	return nil
+}

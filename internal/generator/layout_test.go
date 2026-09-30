@@ -29,8 +29,12 @@ func TestBuildModuleLayout(t *testing.T) {
 		if got := spec.files[0].path; got != test.firstPath {
 			t.Errorf("%s first path = %q, want %q", test.layout, got, test.firstPath)
 		}
-		if len(spec.wiring) != 4 {
-			t.Errorf("%s wiring count = %d, want 4", test.layout, len(spec.wiring))
+		wantWiring := 4
+		if test.layout == architecture.LayeredREST {
+			wantWiring = 7
+		}
+		if len(spec.wiring) != wantWiring {
+			t.Errorf("%s wiring count = %d, want %d", test.layout, len(spec.wiring), wantWiring)
 		}
 	}
 }

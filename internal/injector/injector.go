@@ -188,9 +188,51 @@ func removeImport(source []byte, content string) ([]byte, error) {
 			if value != path {
 				continue
 			}
+			if importIsUsed(file, importIdentifier(path)) {
+				return source, nil
+			}
 			gen.Specs = append(gen.Specs[:index], gen.Specs[index+1:]...)
 			return formatAST(fileSet, file)
 		}
 	}
 	return source, nil
+}
+
+func importIdentifier(importPath string) string {
+	parts := strings.Split(strings.TrimSuffix(importPath, "/"), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	name := parts[len(parts)-1]
+	if len(name) > 1 && name[0] == 'v' {
+		digits := true
+		for _, character := range name[1:] {
+			if character < '0' || character > '9' {
+				digits = false
+				break
+			}
+		}
+		if digits && len(parts) > 1 {
+			name = parts[len(parts)-2]
+		}
+	}
+	return name
+}
+
+func importIsUsed(file *ast.File, name string) bool {
+	if name == "" {
+		return false
+	}
+
+	used := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
+		if ok && identifier.Name == name {
+			used = true
+			return false
+		}
+		return !used
+	})
+	return used
 }

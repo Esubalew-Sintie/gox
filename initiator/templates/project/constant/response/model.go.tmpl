@@ -1,0 +1,16 @@
+package response
+
+import apperrors "{{ .Module }}/internal/constant/errors"
+
+type Model struct {
+	Status  int            `json:"status"`
+	Message string         `json:"message,omitempty"`
+	Data    any            `json:"data,omitempty"`
+	Meta    any            `json:"meta,omitempty"`
+	Error   *Error         `json:"error,omitempty"`
+}
+
+type Error struct {
+	Type    apperrors.Type `json:"type"`
+	Message string         `json:"message"`
+}

@@ -21,22 +21,18 @@ gox new members --module example.com/members --layout feature-first --http gin -
 
 Supported layouts:
 
-- \`layered-rest\` (default): persistence, service, HTTP handler, and route packages.
+- \`layered-rest\` (default): central persistence, module, and HTTP-handler
+  contracts plus per-resource implementations.
 - \`feature-first\`: a self-contained feature package.
 
-Supported HTTP routers:
-
-- \`net/http\` (default)
-- \`chi\`
-- \`gin\`
-
-The selected router is persisted in \`.gox.yaml\`; generated resources use its
+Supported HTTP routers: \`net/http\` (default), \`chi\`, and \`gin\`. The
+selected router is stored in \`.gox.yaml\`, and generated resources use its
 routing conventions automatically.
 
-## Infrastructure
+## Infrastructure Lifecycle
 
-Select PostgreSQL, MongoDB, Redis, or Kafka during \`gox new\`, or add one to
-an existing project:
+PostgreSQL, MongoDB, Redis, and Kafka are selected during \`gox new\` or added
+later:
 
 \`\`\`sh
 cd members
@@ -46,11 +42,15 @@ gox add redis
 gox add kafka
 \`\`\`
 
-Each selection generates a concrete client adapter in
-\`internal/infrastructure/\`, records the capability in \`.gox.yaml\`, and
-adds the required Go module. Adapters expose explicit constructors and health
-checks; the application does not connect to infrastructure until your
-composition root calls them.
+The generator creates \`initiator/dependencies.go\`. It owns constructing,
+exposing, checking, and gracefully closing the selected clients, so connection
+lifecycle stays in the composition root instead of being hidden in feature
+packages. Required environment variables are:
+
+- PostgreSQL: \`DATABASE_URL\`
+- MongoDB: \`MONGO_URI\`
+- Redis: \`REDIS_ADDR\`, optionally \`REDIS_PASSWORD\`
+- Kafka: \`KAFKA_BROKERS\` and \`KAFKA_TOPIC\`
 
 ## Generate A Resource
 
@@ -60,33 +60,31 @@ gox g module survey --dry-run
 gox remove resource account
 \`\`\`
 
-A generated resource includes CRUD routes, request validation, an in-memory
-repository, handler tests, contracts, and automatic registration in the
-application composition root.
-
-## Layered REST Output
+Layered REST resource generation appends contracts to:
 
 \`\`\`text
-initiator/
-  config.go
-  persistence.go
-  module.go
-  handler.go
-  routes.go
-internal/
-  storage/persistence/<resource>/
-  module/<resource>/
-  handler/rest/http/<resource>/
-  glue/routing/<resource>/
-  constant/model/
-  infrastructure/
+internal/storage/persistence/persistence.go
+internal/module/module.go
+internal/handler/rest/handler.go
 \`\`\`
 
-The dependency direction is:
+The initiator fields use those contracts, while generated concrete types remain
+inside each feature package. This makes replacement and mocking straightforward.
+
+## Generated Constants
 
 \`\`\`text
-Persistence -> Module -> Handler -> Route
+internal/constant/
+  constants.go
+  errors/errors.go
+  entities/<entity>/<entity>.go
+  dto/<entity>.go
+  response/model.go
+  response/response.go
 \`\`\`
+
+Handlers return the shared \`response.Model\` envelope for successful and error
+responses. The error package centralizes HTTP status and error-type metadata.
 
 ## Runtime Behavior
 
@@ -99,33 +97,5 @@ logger and recovery middleware.
 
 Add templates under \`initiator/templates/<layout>/\`, then define generated
 files and composition-root wiring in \`internal/generator/layout.go\`. Every
-layout must keep the four registry markers in \`initiator\` so resource
-generation can remain deterministic.
-
-
-what is the use of infratructure folder creation they are db or redis or storage instance creation why dont add them in the initiator like these handle 
-/home/esubalew-sintie/comp/cbe_super_app2/cbe-super-app-member-users/initiator
-
-and on the constant folder make like these and use the success and error response 
-internal/
-└── constant/
-    ├── constants.go
-    │
-    ├── errors/
-    │   └── errors.go
-    │
-    ├── entities/
-    │   ├── <entity>/
-    │   │   └── <entity>.go
-    │   │
-    │   └── <another-entity>/
-    │       └── <another-entity>.go
-    │
-    ├── dto/
-    │   ├── <entity>.go
-    │   ├── <entity>_<operation>.go
-    │   └── ...
-    │
-    └── response/
-        ├── model.go
-        └── response.go
+layout must keep its registry markers so resource generation remains
+deterministic.

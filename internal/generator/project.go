@@ -125,24 +125,20 @@ func projectFiles(options ProjectOptions) []projectFile {
 		{"project/go.mod.tmpl", "go.mod"},
 		{"project/main.go.tmpl", filepath.Join("cmd", "main.go")},
 		{"project/initiator/initiator.go.tmpl", filepath.Join("initiator", "initiator.go")},
+		{"project/initiator/dependencies.go.tmpl", filepath.Join("initiator", "dependencies.go")},
 		{"project/initiator/module.go.tmpl", filepath.Join("initiator", "module.go")},
 		{"project/initiator/persistence.go.tmpl", filepath.Join("initiator", "persistence.go")},
 		{"project/initiator/config.go.tmpl", filepath.Join("initiator", "config.go")},
 		{"project/initiator/handler.go.tmpl", filepath.Join("initiator", "handler.go")},
 		{"project/initiator/routes.go.tmpl", filepath.Join("initiator", "routes.go")},
+		{"project/contracts/persistence.go.tmpl", filepath.Join("internal", "storage", "persistence", "persistence.go")},
+		{"project/contracts/module.go.tmpl", filepath.Join("internal", "module", "module.go")},
+		{"project/contracts/handler.go.tmpl", filepath.Join("internal", "handler", "rest", "handler.go")},
+		{"project/constant/constants.go.tmpl", filepath.Join("internal", "constant", "constants.go")},
+		{"project/constant/errors/errors.go.tmpl", filepath.Join("internal", "constant", "errors", "errors.go")},
+		{"project/constant/response/model.go.tmpl", filepath.Join("internal", "constant", "response", "model.go")},
+		{"project/constant/response/response.go.tmpl", filepath.Join("internal", "constant", "response", "response.go")},
 		{"project/gox.yaml.tmpl", ".gox.yaml"},
-	}
-	if options.Postgres {
-		files = append(files, projectFile{"capability/postgres/client.go.tmpl", filepath.Join("internal", "infrastructure", "postgres", "client.go")})
-	}
-	if options.Mongo {
-		files = append(files, projectFile{"capability/mongo/client.go.tmpl", filepath.Join("internal", "infrastructure", "mongo", "client.go")})
-	}
-	if options.Redis {
-		files = append(files, projectFile{"capability/redis/client.go.tmpl", filepath.Join("internal", "infrastructure", "redis", "client.go")})
-	}
-	if options.Kafka {
-		files = append(files, projectFile{"capability/kafka/producer.go.tmpl", filepath.Join("internal", "infrastructure", "kafka", "producer.go")})
 	}
 	return files
 }

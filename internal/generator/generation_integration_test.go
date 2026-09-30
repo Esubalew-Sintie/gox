@@ -48,7 +48,10 @@ func TestGeneratedProjectBuildsForEveryLayout(t *testing.T) {
 			}
 
 			if err := moduleGen.Generate(projectPath, ModuleOptions{Name: "account"}); err != nil {
-				t.Fatalf("generate module: %v", err)
+				t.Fatalf("generate account: %v", err)
+			}
+			if err := moduleGen.Generate(projectPath, ModuleOptions{Name: "profile"}); err != nil {
+				t.Fatalf("generate profile: %v", err)
 			}
 
 			if err := runCommand(projectPath, "go", "test", "./..."); err != nil {

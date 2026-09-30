@@ -1,24 +1,36 @@
 package {{ .Snake }}
 
 import (
-	model "{{ .ModulePath }}/internal/constant/model"
-	dto "{{ .ModulePath }}/internal/constant/model/dto"
-	persistence "{{ .ModulePath }}/internal/storage/persistence/{{ .Snake }}"
+	dto "{{ .ModulePath }}/internal/constant/dto"
+	entity "{{ .ModulePath }}/internal/constant/entities/{{ .Snake }}"
+	module "{{ .ModulePath }}/internal/module"
+	persistence "{{ .ModulePath }}/internal/storage/persistence"
 )
 
-type Service interface {
-	Create(dto.Create{{ .Pascal }}Request) model.{{ .Pascal }}
-	List() []model.{{ .Pascal }}
-	Get(string) (model.{{ .Pascal }}, bool)
-	Update(string, dto.Update{{ .Pascal }}Request) (model.{{ .Pascal }}, bool)
-	Delete(string) bool
+type service struct {
+	repository persistence.{{ .Pascal }}
 }
 
-type service struct { repository persistence.Repository }
+func Init(repository persistence.{{ .Pascal }}) module.{{ .Pascal }} {
+	return &service{repository: repository}
+}
 
-func Init(repository persistence.Repository) Service { return &service{repository: repository} }
-func (s *service) Create(input dto.Create{{ .Pascal }}Request) model.{{ .Pascal }} { return s.repository.Create(input) }
-func (s *service) List() []model.{{ .Pascal }} { return s.repository.List() }
-func (s *service) Get(id string) (model.{{ .Pascal }}, bool) { return s.repository.Get(id) }
-func (s *service) Update(id string, input dto.Update{{ .Pascal }}Request) (model.{{ .Pascal }}, bool) { return s.repository.Update(id, input) }
-func (s *service) Delete(id string) bool { return s.repository.Delete(id) }
+func (s *service) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
+	return s.repository.Create(input)
+}
+
+func (s *service) List() []entity.{{ .Pascal }} {
+	return s.repository.List()
+}
+
+func (s *service) Get(id string) (entity.{{ .Pascal }}, bool) {
+	return s.repository.Get(id)
+}
+
+func (s *service) Update(id string, input dto.Update{{ .Pascal }}Request) (entity.{{ .Pascal }}, bool) {
+	return s.repository.Update(id, input)
+}
+
+func (s *service) Delete(id string) bool {
+	return s.repository.Delete(id)
+}

@@ -6,33 +6,28 @@ import (
 	"sync/atomic"
 	"time"
 
-	model "{{ .ModulePath }}/internal/constant/model"
-	dto "{{ .ModulePath }}/internal/constant/model/dto"
+	dto "{{ .ModulePath }}/internal/constant/dto"
+	entity "{{ .ModulePath }}/internal/constant/entities/{{ .Snake }}"
+	persistence "{{ .ModulePath }}/internal/storage/persistence"
 )
 
-type Repository interface {
-	Create(dto.Create{{ .Pascal }}Request) model.{{ .Pascal }}
-	List() []model.{{ .Pascal }}
-	Get(string) (model.{{ .Pascal }}, bool)
-	Update(string, dto.Update{{ .Pascal }}Request) (model.{{ .Pascal }}, bool)
-	Delete(string) bool
-}
-
-type memoryRepository struct {
+type repository struct {
 	mu     sync.RWMutex
 	nextID uint64
-	items  map[string]model.{{ .Pascal }}
+	items  map[string]entity.{{ .Pascal }}
 }
 
-func Init() Repository {
-	return &memoryRepository{items: make(map[string]model.{{ .Pascal }})}
+func Init() persistence.{{ .Pascal }} {
+	return &repository{items: make(map[string]entity.{{ .Pascal }})}
 }
 
-func (r *memoryRepository) Create(input dto.Create{{ .Pascal }}Request) model.{{ .Pascal }} {
+func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
 	now := time.Now().UTC()
-	item := model.{{ .Pascal }}{
-		ID: fmt.Sprintf("{{ .Kebab }}-%d", atomic.AddUint64(&r.nextID, 1)),
-		Name: input.Name, CreatedAt: now, UpdatedAt: now,
+	item := entity.{{ .Pascal }}{
+		ID:        fmt.Sprintf("{{ .Kebab }}-%d", atomic.AddUint64(&r.nextID, 1)),
+		Name:      input.Name,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	r.mu.Lock()
 	r.items[item.ID] = item
@@ -40,36 +35,44 @@ func (r *memoryRepository) Create(input dto.Create{{ .Pascal }}Request) model.{{
 	return item
 }
 
-func (r *memoryRepository) List() []model.{{ .Pascal }} {
+func (r *repository) List() []entity.{{ .Pascal }} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	items := make([]model.{{ .Pascal }}, 0, len(r.items))
-	for _, item := range r.items { items = append(items, item) }
+
+	items := make([]entity.{{ .Pascal }}, 0, len(r.items))
+	for _, item := range r.items {
+		items = append(items, item)
+	}
 	return items
 }
 
-func (r *memoryRepository) Get(id string) (model.{{ .Pascal }}, bool) {
+func (r *repository) Get(id string) (entity.{{ .Pascal }}, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	item, ok := r.items[id]
 	return item, ok
 }
 
-func (r *memoryRepository) Update(id string, input dto.Update{{ .Pascal }}Request) (model.{{ .Pascal }}, bool) {
+func (r *repository) Update(id string, input dto.Update{{ .Pascal }}Request) (entity.{{ .Pascal }}, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	item, ok := r.items[id]
-	if !ok { return model.{{ .Pascal }}{}, false }
+	if !ok {
+		return entity.{{ .Pascal }}{}, false
+	}
 	item.Name = input.Name
 	item.UpdatedAt = time.Now().UTC()
 	r.items[id] = item
 	return item, true
 }
 
-func (r *memoryRepository) Delete(id string) bool {
+func (r *repository) Delete(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.items[id]; !ok { return false }
+	if _, ok := r.items[id]; !ok {
+		return false
+	}
 	delete(r.items, id)
 	return true
 }

@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 {{ end }}
 
+	"{{ .Module }}/internal/constant/response"
+
 	// gox:imports:start
 	// gox:imports:end
 )
@@ -46,8 +48,7 @@ func InitRoutes(handlers Handler) http.Handler {
 
 {{ if ne .HTTP "gin" }}
 func health(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte("{\"status\":\"ok\"}\n"))
+	response.SendSuccess(w, http.StatusOK, "service healthy", map[string]string{"status": "ok"}, nil)
 }
 
 func requestLogger(next http.Handler) http.Handler {
@@ -59,6 +60,6 @@ func requestLogger(next http.Handler) http.Handler {
 }
 {{ else }}
 func ginHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	response.SendSuccess(c.Writer, http.StatusOK, "service healthy", map[string]string{"status": "ok"}, nil)
 }
 {{ end }}
