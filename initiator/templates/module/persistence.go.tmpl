@@ -20,30 +20,12 @@ func Init(pool *pgxpool.Pool) (persistence.{{ .Pascal }}, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("postgres pool is required")
 	}
-	repository := &repository{pool: pool}
-	if err := repository.ensureSchema(context.Background()); err != nil {
-		return nil, err
-	}
-	return repository, nil
-}
-
-func (r *repository) ensureSchema(ctx context.Context) error {
-	_, err := r.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS {{ .Snake }} (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		created_at TIMESTAMPTZ NOT NULL,
-		updated_at TIMESTAMPTZ NOT NULL
-	)`)
-	if err != nil {
-		return fmt.Errorf("create {{ .Snake }} table: %w", err)
-	}
-	return nil
+	return &repository{pool: pool}, nil
 }
 
 func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
-	ctx := context.Background()
 	item := entity.{{ .Pascal }}{ID: newID(), Name: input.Name, CreatedAt: now(), UpdatedAt: now()}
-	_, err := r.pool.Exec(ctx, "INSERT INTO {{ .Snake }} (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)", item.ID, item.Name, item.CreatedAt, item.UpdatedAt)
+	_, err := r.pool.Exec(context.Background(), "INSERT INTO {{ .Snake }} (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)", item.ID, item.Name, item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		panic(fmt.Errorf("insert {{ .Snake }}: %w", err))
 	}
@@ -107,7 +89,6 @@ import (
 	persistence "{{ .ModulePath }}/internal/storage/persistence"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type repository struct {
@@ -118,15 +99,7 @@ func Init(database *mongo.Database) (persistence.{{ .Pascal }}, error) {
 	if database == nil {
 		return nil, fmt.Errorf("mongo database is required")
 	}
-	collection := database.Collection("{{ .Snake }}")
-	_, err := collection.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys: bson.D{{ "{" }}{{ "{" }}Key: "id", Value: 1{{ "}" }}{{ "}" }},
-		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create {{ .Snake }} index: %w", err)
-	}
-	return &repository{collection: collection}, nil
+	return &repository{collection: database.Collection("{{ .Snake }}")}, nil
 }
 
 func (r *repository) Create(input dto.Create{{ .Pascal }}Request) entity.{{ .Pascal }} {
@@ -153,8 +126,7 @@ func (r *repository) List() []entity.{{ .Pascal }} {
 
 func (r *repository) Get(id string) (entity.{{ .Pascal }}, bool) {
 	var item entity.{{ .Pascal }}
-	err := r.collection.FindOne(context.Background(), bson.M{"id": id}).Decode(&item)
-	if err != nil {
+	if err := r.collection.FindOne(context.Background(), bson.M{"id": id}).Decode(&item); err != nil {
 		return entity.{{ .Pascal }}{}, false
 	}
 	return item, true
