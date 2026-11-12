@@ -1,0 +1,69 @@
+// Package middleware holds the HTTP middleware of the service.
+package middleware
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"{{ .Module }}/internal/handler/http/response"
+)
+
+type requestIDKey struct{}
+
+// Logger assigns a request id, echoes it in X-Request-ID, and logs one line
+// per request with method, path, status, duration and the id.
+func Logger(log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := r.Header.Get(response.RequestIDHeader)
+			if id == "" {
+				id = newRequestID()
+			}
+			w.Header().Set(response.RequestIDHeader, id)
+			ctx := context.WithValue(r.Context(), requestIDKey{}, id)
+
+			ww := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+			start := time.Now()
+			next.ServeHTTP(ww, r.WithContext(ctx))
+
+			log.InfoContext(ctx, "request",
+				"request_id", id,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", ww.status,
+				"duration_ms", time.Since(start).Milliseconds(),
+			)
+		})
+	}
+}
+
+// RequestID returns the id Logger stored in the context, or "".
+func RequestID(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
+}
+
+func newRequestID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "unknown"
+	}
+	return hex.EncodeToString(b[:])
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

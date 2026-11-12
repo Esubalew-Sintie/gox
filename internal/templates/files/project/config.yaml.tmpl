@@ -1,0 +1,31 @@
+# Non-secret defaults for {{ .Name }}. Secrets come from the environment; see .env.example.
+# Any value here can be overridden with APP_<SECTION>__<KEY>, for example APP_SERVER__PORT=9090.
+server:
+  port: 8080
+  environment: development
+  log_level: info
+  read_timeout: 5s
+  write_timeout: 10s
+  shutdown_timeout: 10s
+{{- if .Postgres }}
+postgres:
+  url: postgres://app:app@localhost:5432/app?sslmode=disable
+  max_conns: 10
+  auto_migrate: true
+{{- end }}
+{{- if .MySQL }}
+mysql:
+  dsn: app:app@tcp(localhost:3306)/app?parseTime=true&multiStatements=true
+  max_open_conns: 10
+  auto_migrate: true
+{{- end }}
+{{- if .SQLite }}
+sqlite:
+  path: data/{{ .Name }}.db
+  auto_migrate: true
+{{- end }}
+{{- if .Mongo }}
+mongo:
+  uri: mongodb://localhost:27017
+  database: {{ .Name }}
+{{- end }}

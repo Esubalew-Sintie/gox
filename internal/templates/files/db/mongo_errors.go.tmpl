@@ -1,0 +1,34 @@
+package mongo
+
+import (
+	"context"
+	"errors"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"{{ .Module }}/internal/domain"
+)
+
+// Translate turns a driver error into a catalogue error with the original
+// attached as cause. notFound is the feature's own not-found error.
+func Translate(err error, notFound error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return domain.Wrap(notFound, err)
+	}
+	if mongo.IsDuplicateKeyError(err) {
+		return domain.Wrap(domain.ErrConflict, err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return domain.Wrap(domain.ErrRequestCancelled, err)
+	}
+	if mongo.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded) {
+		return domain.Wrap(domain.ErrRequestTimeout, err)
+	}
+	if mongo.IsNetworkError(err) {
+		return domain.Wrap(domain.ErrServiceUnavailable, err)
+	}
+	return domain.Wrap(domain.ErrInternalServerError, err)
+}

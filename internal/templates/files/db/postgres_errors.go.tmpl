@@ -1,0 +1,45 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"{{ .Module }}/internal/domain"
+)
+
+// Translate turns a pgx error into a catalogue error with the original
+// attached as cause, so the client sees the catalogue message and the log
+// sees the driver text. notFound is the feature's own not-found error.
+func Translate(err error, notFound error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Wrap(notFound, err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return domain.Wrap(domain.ErrRequestTimeout, err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return domain.Wrap(domain.ErrRequestCancelled, err)
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505": // unique_violation
+			return domain.Wrap(domain.ErrConflict, err)
+		case "23503", "23502", "23514", "22P02", "22001": // fk, not null, check, invalid text, value too long
+			return domain.Wrap(domain.ErrInvalidData, err)
+		case "40001", "40P01": // serialization_failure, deadlock_detected
+			return domain.Wrap(domain.ErrConcurrentUpdate, err)
+		case "57014": // query_canceled (statement_timeout)
+			return domain.Wrap(domain.ErrRequestTimeout, err)
+		case "08000", "08003", "08006", "53300", "57P01": // connection errors, too_many_connections, admin_shutdown
+			return domain.Wrap(domain.ErrServiceUnavailable, err)
+		}
+	}
+	return domain.Wrap(domain.ErrInternalServerError, err)
+}

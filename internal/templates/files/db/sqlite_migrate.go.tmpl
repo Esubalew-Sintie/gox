@@ -1,0 +1,53 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io/fs"
+
+	"github.com/golang-migrate/migrate/v4"
+	sqlitemigrate "github.com/golang-migrate/migrate/v4/database/sqlite"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+
+	"{{ .Module }}/internal/config"
+)
+
+// Migrator returns a golang-migrate instance over the embedded files and
+// the database. Close it when done; closing it does not close db.
+func Migrator(db *sql.DB, fsys fs.FS) (*migrate.Migrate, error) {
+	src, err := iofs.New(fsys, ".")
+	if err != nil {
+		return nil, fmt.Errorf("migration source: %w", err)
+	}
+	driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("migration driver: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", src, "sqlite", driver)
+	if err != nil {
+		return nil, fmt.Errorf("migrator: %w", err)
+	}
+	return m, nil
+}
+
+// Migrate applies every pending migration on a connection of its own,
+// because closing the migrator closes the database it was given. No pending
+// migration is not an error.
+func Migrate(ctx context.Context, cfg config.SQLiteConfig, fsys fs.FS) error {
+	db, err := Open(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	m, err := Migrator(db, fsys)
+	if err != nil {
+		_ = db.Close()
+		return err
+	}
+	defer func() { _, _ = m.Close() }()
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("migrate up: %w", err)
+	}
+	return nil
+}

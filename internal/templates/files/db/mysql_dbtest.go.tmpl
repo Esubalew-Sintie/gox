@@ -1,0 +1,51 @@
+// Package dbtest starts real databases for repository tests. It uses
+// testcontainers, so it needs Docker; tests skip it under -short.
+package dbtest
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"io/fs"
+
+	"github.com/testcontainers/testcontainers-go"
+	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
+
+	"{{ .Module }}/internal/config"
+	"{{ .Module }}/internal/storage/mysql"
+)
+
+// MySQLImage is the container image repository tests run against.
+const MySQLImage = "mysql:8.4"
+
+// StartMySQL starts a MySQL container, applies the migrations in fsys and
+// returns the database and a stop function. Call it from TestMain so one
+// container serves the whole test package.
+func StartMySQL(ctx context.Context, fsys fs.FS) (*sql.DB, func(), error) {
+	ctr, err := tcmysql.Run(ctx, MySQLImage,
+		tcmysql.WithDatabase("test"),
+		tcmysql.WithUsername("test"),
+		tcmysql.WithPassword("test"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("start mysql container: %w", err)
+	}
+	stop := func() { _ = testcontainers.TerminateContainer(ctr) }
+
+	dsn, err := ctr.ConnectionString(ctx, "parseTime=true", "multiStatements=true")
+	if err != nil {
+		stop()
+		return nil, nil, fmt.Errorf("mysql connection string: %w", err)
+	}
+	cfg := config.MySQLConfig{DSN: dsn}
+	if err := mysql.Migrate(ctx, cfg, fsys); err != nil {
+		stop()
+		return nil, nil, err
+	}
+	db, err := mysql.Open(ctx, cfg)
+	if err != nil {
+		stop()
+		return nil, nil, err
+	}
+	return db, func() { _ = db.Close(); stop() }, nil
+}

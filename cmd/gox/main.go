@@ -1,7 +1,12 @@
+// Command gox generates Go services and keeps their wiring current.
 package main
 
-import "github.com/esubalew-Sintie/gox/initiator"
+import (
+	"os"
+
+	"github.com/esubalew-Sintie/gox/internal/cli"
+)
 
 func main() {
-	initiator.Start()
+	os.Exit(cli.Execute())
 }

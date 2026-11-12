@@ -1,0 +1,28 @@
+package response
+
+import "{{ .Module }}/internal/domain"
+
+// Envelope is the one JSON shape every response has. Success fills Message,
+// Data and optionally Meta; Error fills Error. HasRetry is always present.
+type Envelope struct {
+	Status   int        `json:"status"`
+	Message  string     `json:"message,omitempty"`
+	Data     any        `json:"data,omitempty"`
+	Meta     any        `json:"meta,omitempty"`
+	Error    *ErrorBody `json:"error,omitempty"`
+	HasRetry bool       `json:"has_retry"`
+}
+
+// ErrorBody is the error object: the type from domain.ErrorTypeMap, the
+// message of the matched catalogue entry, and field details for validation.
+type ErrorBody struct {
+	Type    domain.ErrorType `json:"type"`
+	Message string           `json:"message"`
+	Details []FieldError     `json:"details,omitempty"`
+}
+
+// FieldError is one entry of ErrorBody.Details.
+type FieldError struct {
+	Field       string `json:"field"`
+	Description string `json:"description"`
+}

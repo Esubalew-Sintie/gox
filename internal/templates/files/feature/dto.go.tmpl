@@ -1,0 +1,67 @@
+package {{ .Name.Snake }}
+
+import (
+	"time"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+)
+
+// createRequest is the body of POST {{ .Route }}.
+type createRequest struct {
+{{- range .Fields }}
+	{{ .Name.Pascal }} {{ .GoType }} `json:"{{ .Name.Snake }}"`
+{{- end }}
+}
+
+// Validate holds the request rules. Business invariants live in the entity.
+func (r *createRequest) Validate() error {
+	return validation.ValidateStruct(r,
+{{- range .Fields }}
+{{- if .Required }}
+		validation.Field(&r.{{ .Name.Pascal }}, validation.Required),
+{{- end }}
+{{- end }}
+	)
+}
+
+func (r *createRequest) toInput() {{ .Name.Snake }}.CreateInput {
+	return {{ .Name.Snake }}.CreateInput{
+{{- range .Fields }}
+		{{ .Name.Pascal }}: r.{{ .Name.Pascal }},
+{{- end }}
+	}
+}
+
+// updateRequest is the body of PUT {{ .Route }}/{id}.
+type updateRequest = createRequest
+
+// {{ .Name.Camel }}Response is the wire form of a {{ .Title }}.
+type {{ .Name.Camel }}Response struct {
+	ID string `json:"id"`
+{{- range .Fields }}
+	{{ .Name.Pascal }} {{ .GoType }} `json:"{{ .Name.Snake }}{{ if .Nullable }},omitempty{{ end }}"`
+{{- end }}
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toResponse(e *{{ .Name.Snake }}.{{ .Name.Pascal }}) {{ .Name.Camel }}Response {
+	return {{ .Name.Camel }}Response{
+		ID: e.ID,
+{{- range .Fields }}
+		{{ .Name.Pascal }}: e.{{ .Name.Pascal }},
+{{- end }}
+		CreatedAt: e.CreatedAt,
+		UpdatedAt: e.UpdatedAt,
+	}
+}
+
+func toResponses(items []*{{ .Name.Snake }}.{{ .Name.Pascal }}) []{{ .Name.Camel }}Response {
+	out := make([]{{ .Name.Camel }}Response, 0, len(items))
+	for _, e := range items {
+		out = append(out, toResponse(e))
+	}
+	return out
+}

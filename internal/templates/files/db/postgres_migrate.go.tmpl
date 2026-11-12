@@ -1,0 +1,44 @@
+package postgres
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+
+	"github.com/golang-migrate/migrate/v4"
+	pgxmigrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+)
+
+// Migrator returns a golang-migrate instance over the embedded files and
+// the pool. Close it when done; closing it does not close the pool.
+func Migrator(pool *pgxpool.Pool, fsys fs.FS) (*migrate.Migrate, error) {
+	src, err := iofs.New(fsys, ".")
+	if err != nil {
+		return nil, fmt.Errorf("migration source: %w", err)
+	}
+	driver, err := pgxmigrate.WithInstance(stdlib.OpenDBFromPool(pool), &pgxmigrate.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("migration driver: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", src, "pgx5", driver)
+	if err != nil {
+		return nil, fmt.Errorf("migrator: %w", err)
+	}
+	return m, nil
+}
+
+// Migrate applies every pending migration. No pending migration is not an error.
+func Migrate(pool *pgxpool.Pool, fsys fs.FS) error {
+	m, err := Migrator(pool, fsys)
+	if err != nil {
+		return err
+	}
+	defer func() { _, _ = m.Close() }()
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("migrate up: %w", err)
+	}
+	return nil
+}

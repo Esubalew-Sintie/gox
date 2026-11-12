@@ -1,0 +1,162 @@
+// Package {{ .Name.Snake }} is the MongoDB implementation of storage.{{ .Name.Pascal }}Repository.
+package {{ .Name.Snake }}
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/storage"
+	mongostorage "{{ .Module }}/internal/storage/mongo"
+)
+
+// Collection is the collection name.
+const Collection = "{{ .Name.Plural }}"
+
+// updateAttempts bounds the optimistic retry loop in Update.
+const updateAttempts = 3
+
+// document is the stored form of a {{ .Title | lower }}.
+type document struct {
+	ID string `bson:"_id"`
+{{- range .Fields }}
+	{{ .Name.Pascal }} {{ .GoType }} `bson:"{{ .Name.Snake }}{{ if .Nullable }},omitempty{{ end }}"`
+{{- end }}
+	CreatedAt time.Time `bson:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at"`
+}
+
+func toDocument(e *{{ .Name.Snake }}.{{ .Name.Pascal }}) document {
+	return document{
+		ID: e.ID,
+{{- range .Fields }}
+		{{ .Name.Pascal }}: e.{{ .Name.Pascal }},
+{{- end }}
+		CreatedAt: e.CreatedAt,
+		UpdatedAt: e.UpdatedAt,
+	}
+}
+
+func (d document) entity() *{{ .Name.Snake }}.{{ .Name.Pascal }} {
+	return &{{ .Name.Snake }}.{{ .Name.Pascal }}{
+		ID: d.ID,
+{{- range .Fields }}
+		{{ .Name.Pascal }}: d.{{ .Name.Pascal }},
+{{- end }}
+		CreatedAt: d.CreatedAt,
+		UpdatedAt: d.UpdatedAt,
+	}
+}
+
+// Repository stores {{ .PluralTitle | lower }} in the {{ .Name.Plural }} collection.
+type Repository struct {
+	coll *mongo.Collection
+	log  *slog.Logger
+}
+
+var _ storage.{{ .Name.Pascal }}Repository = (*Repository)(nil)
+
+// New wires the repository to the database.
+func New(db *mongo.Database, log *slog.Logger) *Repository {
+	return &Repository{coll: db.Collection(Collection), log: log}
+}
+
+// Create inserts e, assigning an id when it has none.
+func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+	if e.ID == "" {
+		e.ID = domain.NewID()
+	}
+	_, err := r.coll.InsertOne(ctx, toDocument(e))
+	return translate(err)
+}
+
+// Get returns one {{ .Title | lower }} by id.
+func (r *Repository) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	var d document
+	if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&d); err != nil {
+		return nil, translate(err)
+	}
+	return d.entity(), nil
+}
+
+// List returns one page in creation order and the total count.
+func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+	page = page.Normalized()
+	total, err := r.coll.CountDocuments(ctx, bson.D{})
+	if err != nil {
+		return nil, 0, translate(err)
+	}
+	opts := options.Find().
+		SetSort(bson.D{{"{{"}}Key: "created_at", Value: 1}, {Key: "_id", Value: 1}}).
+		SetSkip(int64(page.Offset())).
+		SetLimit(int64(page.Limit))
+	cursor, err := r.coll.Find(ctx, bson.D{}, opts)
+	if err != nil {
+		return nil, 0, translate(err)
+	}
+	var docs []document
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, 0, translate(err)
+	}
+	items := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, len(docs))
+	for i := range docs {
+		items = append(items, docs[i].entity())
+	}
+	return items, total, nil
+}
+
+// Update reads the document, applies fn and replaces it only when nobody
+// else changed it in between, retrying a few times before reporting a
+// concurrent update.
+func (r *Repository) Update(ctx context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	for range updateAttempts {
+		var current document
+		if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&current); err != nil {
+			return nil, translate(err)
+		}
+		e := current.entity()
+		if err := fn(e); err != nil {
+			return nil, err
+		}
+		res, err := r.coll.ReplaceOne(ctx, bson.M{"_id": id, "updated_at": current.UpdatedAt}, toDocument(e))
+		if err != nil {
+			return nil, translate(err)
+		}
+		if res.MatchedCount == 1 {
+			return e, nil
+		}
+	}
+	return nil, domain.ErrConcurrentUpdate
+}
+
+// Delete removes one {{ .Title | lower }}.
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	res, err := r.coll.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return translate(err)
+	}
+	if res.DeletedCount == 0 {
+		return domain.Err{{ .Name.Pascal }}NotFound
+	}
+	return nil
+}
+
+// translate maps driver errors to the catalogue; a duplicate key becomes
+// the feature's conflict error.
+func translate(err error) error {
+	if err == nil {
+		return nil
+	}
+	err = mongostorage.Translate(err, domain.Err{{ .Name.Pascal }}NotFound)
+	if errors.Is(err, domain.ErrConflict) {
+		return domain.Wrap(domain.Err{{ .Name.Pascal }}Conflict, err)
+	}
+	return err
+}

@@ -1,0 +1,37 @@
+// Package postgres holds the pool, the transaction helper, the migration
+// runner and the error translation shared by every repository under it.
+package postgres
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"{{ .Module }}/internal/config"
+)
+
+// NewPool parses cfg.URL, opens the pool and pings it.
+func NewPool(ctx context.Context, cfg config.PostgresConfig) (*pgxpool.Pool, error) {
+	pc, err := pgxpool.ParseConfig(cfg.URL)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres url: %w", err)
+	}
+	if cfg.MaxConns > 0 {
+		pc.MaxConns = cfg.MaxConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, pc)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return pool, nil
+}
+
+// Ready reports whether the database answers, for /readyz.
+func Ready(ctx context.Context, pool *pgxpool.Pool) error {
+	return pool.Ping(ctx)
+}

@@ -1,0 +1,73 @@
+// Package {{ .Name.Snake }} implements service.{{ .Name.Pascal }}Service.
+package {{ .Name.Snake }}
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/service"
+	"{{ .Module }}/internal/storage"
+)
+
+// Service holds the {{ .Title }} use cases.
+type Service struct {
+	repo storage.{{ .Name.Pascal }}Repository
+	log  *slog.Logger
+}
+
+var _ service.{{ .Name.Pascal }}Service = (*Service)(nil)
+
+// New wires the service to its repository.
+func New(repo storage.{{ .Name.Pascal }}Repository, log *slog.Logger) *Service {
+	return &Service{repo: repo, log: log}
+}
+
+// Create validates the input, builds the entity and stores it.
+func (s *Service) Create(ctx context.Context, in {{ .Name.Snake }}.CreateInput) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	e, err := {{ .Name.Snake }}.New(in)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.Create(ctx, e); err != nil {
+		return nil, fmt.Errorf("create {{ .Name.Snake }}: %w", err)
+	}
+	return e, nil
+}
+
+// Get returns one {{ .Title }} by id.
+func (s *Service) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	e, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get {{ .Name.Snake }} %s: %w", id, err)
+	}
+	return e, nil
+}
+
+// List returns one page and the total count.
+func (s *Service) List(ctx context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+	items, total, err := s.repo.List(ctx, page.Normalized())
+	if err != nil {
+		return nil, 0, fmt.Errorf("list {{ .Name.Plural }}: %w", err)
+	}
+	return items, total, nil
+}
+
+// Update applies the input inside the repository's update.
+func (s *Service) Update(ctx context.Context, id string, in {{ .Name.Snake }}.UpdateInput) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	e, err := s.repo.Update(ctx, id, func(e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error { return e.Update(in) })
+	if err != nil {
+		return nil, fmt.Errorf("update {{ .Name.Snake }} %s: %w", id, err)
+	}
+	return e, nil
+}
+
+// Delete removes one {{ .Title }}.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete {{ .Name.Snake }} %s: %w", id, err)
+	}
+	return nil
+}

@@ -1,0 +1,38 @@
+package app
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"{{ .Module }}/internal/config"
+	"{{ .Module }}/internal/storage/postgres"
+	"{{ .Module }}/migrations"
+)
+
+// InitPostgres opens the connection pool, pings it, and applies the embedded
+// migrations when cfg.AutoMigrate is set. Pool sizes are tuned here.
+func InitPostgres(ctx context.Context, cfg config.PostgresConfig, log *slog.Logger) (*pgxpool.Pool, error) {
+	pool, err := postgres.NewPool(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AutoMigrate {
+		if err := postgres.Migrate(pool, migrations.FS); err != nil {
+			pool.Close()
+			return nil, err
+		}
+		log.Info("postgres migrations applied")
+	}
+	log.Info("postgres connected")
+	return pool, nil
+}
+
+// ClosePostgres closes the pool.
+func ClosePostgres(pool *pgxpool.Pool, log *slog.Logger) {
+	if pool != nil {
+		pool.Close()
+		log.Info("postgres closed")
+	}
+}

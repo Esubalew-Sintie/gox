@@ -1,0 +1,121 @@
+// Package {{ .Name.Snake }} serves the {{ .Title }} HTTP API.
+package {{ .Name.Snake }}
+
+import (
+	"log/slog"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/handler"
+	"{{ .Module }}/internal/handler/http/request"
+	"{{ .Module }}/internal/handler/http/response"
+	"{{ .Module }}/internal/service"
+)
+
+// Handler is the {{ .Title }} HTTP handler.
+type Handler struct {
+	service service.{{ .Name.Pascal }}Service
+	log     *slog.Logger
+}
+
+var _ handler.{{ .Name.Pascal }}Handler = (*Handler)(nil)
+
+// New wires the handler to its service.
+func New(svc service.{{ .Name.Pascal }}Service, log *slog.Logger) *Handler {
+	return &Handler{service: svc, log: log}
+}
+
+{{- if .Chi }}
+// Routes returns the route table that app/routes.go mounts under /api/v1{{ .Route }}.
+func (h *Handler) Routes() http.Handler {
+	r := chi.NewRouter()
+	r.Post("/", h.Create)
+	r.Get("/", h.List)
+	r.Get("/{id}", h.Get)
+	r.Put("/{id}", h.Update)
+	r.Delete("/{id}", h.Delete)
+	return r
+}
+
+func pathID(r *http.Request) string { return chi.URLParam(r, "id") }
+{{- else }}
+// prefix is where app/routes.go registers this handler.
+const prefix = "/api/v1{{ .Route }}"
+
+// Routes returns the route table. Patterns carry the full prefix because
+// net/http matches absolute paths.
+func (h *Handler) Routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+prefix, h.Create)
+	mux.HandleFunc("GET "+prefix, h.List)
+	mux.HandleFunc("GET "+prefix+"/{id}", h.Get)
+	mux.HandleFunc("PUT "+prefix+"/{id}", h.Update)
+	mux.HandleFunc("DELETE "+prefix+"/{id}", h.Delete)
+	return mux
+}
+
+func pathID(r *http.Request) string { return r.PathValue("id") }
+{{- end }}
+
+// Create handles POST {{ .Route }}.
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	var req createRequest
+	if err := request.Decode(r, &req); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	out, err := h.service.Create(r.Context(), req.toInput())
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Success(w, r, http.StatusCreated, "{{ .Title }} created successfully", toResponse(out))
+}
+
+// Get handles GET {{ .Route }}/{id}.
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	out, err := h.service.Get(r.Context(), pathID(r))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Success(w, r, http.StatusOK, "{{ .Title }} fetched successfully", toResponse(out))
+}
+
+// List handles GET {{ .Route }}?page=&limit=.
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	page := request.ParsePage(r)
+	items, total, err := h.service.List(r.Context(), page)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Success(w, r, http.StatusOK, "{{ .PluralTitle }} fetched successfully", toResponses(items),
+		response.WithMeta(domain.NewPageMeta(total, page)))
+}
+
+// Update handles PUT {{ .Route }}/{id}.
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	var req updateRequest
+	if err := request.Decode(r, &req); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	out, err := h.service.Update(r.Context(), pathID(r), req.toInput())
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Success(w, r, http.StatusOK, "{{ .Title }} updated successfully", toResponse(out))
+}
+
+// Delete handles DELETE {{ .Route }}/{id}.
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.Delete(r.Context(), pathID(r)); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Success(w, r, http.StatusOK, "{{ .Title }} deleted successfully", nil)
+}

@@ -1,0 +1,117 @@
+// Package request decodes and validates HTTP input. It is the only package
+// that imports ozzo-validation, so the rest of the service never sees it.
+package request
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"sort"
+	"strings"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+
+	"{{ .Module }}/internal/domain"
+)
+
+// MaxBodyBytes caps request bodies, as the sample service does with MaxBytesReader.
+const MaxBodyBytes = 1 << 20
+
+// Validator is implemented by request DTOs. The ozzo rules live in the
+// method, next to the fields, as in the sample service:
+//
+//	func (r *createFleetRequest) Validate() error {
+//		return validation.ValidateStruct(r,
+//			validation.Field(&r.Name, validation.Required, validation.Length(1, 100)),
+//			validation.Field(&r.Capacity, validation.Required, validation.Min(1)),
+//		)
+//	}
+type Validator interface {
+	Validate() error
+}
+
+// Decode reads a JSON body into dst, rejects unknown fields and oversized
+// bodies, and runs dst's Validate method when it has one. Every failure is a
+// catalogue error or a *domain.ValidationError, so handlers pass it straight
+// to response.Error.
+func Decode(r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, MaxBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(dst); err != nil {
+		var maxErr *http.MaxBytesError
+		var syntaxErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		switch {
+		case errors.As(err, &maxErr):
+			return domain.Wrap(domain.ErrPayloadTooLarge, err)
+		case errors.Is(err, io.EOF):
+			return domain.ErrEmptyBody
+		case errors.As(err, &syntaxErr), errors.Is(err, io.ErrUnexpectedEOF):
+			return domain.Wrap(domain.ErrMalformedJSON, err)
+		case errors.As(err, &typeErr):
+			return domain.NewValidationError(domain.FieldError{
+				Field:       typeErr.Field,
+				Description: typeErr.Field + " has the wrong type, expected " + typeErr.Type.String(),
+			})
+		case strings.HasPrefix(err.Error(), "json: unknown field "):
+			field := strings.Trim(strings.TrimPrefix(err.Error(), "json: unknown field "), `"`)
+			return domain.NewValidationError(domain.FieldError{Field: field, Description: field + " is not a known field"})
+		default:
+			return domain.Wrap(domain.ErrBadRequest, err)
+		}
+	}
+	if dec.More() {
+		return domain.ErrMalformedJSON
+	}
+	return Validate(dst)
+}
+
+// Validate runs v's ozzo rules when it implements Validator and converts the
+// result into one *domain.ValidationError. Fields are listed in name order,
+// nested fields as "parent.child", so the first message is stable; ozzo
+// returns its errors as a map.
+func Validate(v any) error {
+	val, ok := v.(Validator)
+	if !ok {
+		return nil
+	}
+	err := val.Validate()
+	if err == nil {
+		return nil
+	}
+	var verrs validation.Errors
+	if !errors.As(err, &verrs) {
+		return domain.Wrap(domain.ErrInternalServerError, err)
+	}
+	return domain.NewValidationError(fields("", verrs)...)
+}
+
+func fields(prefix string, verrs validation.Errors) []domain.FieldError {
+	keys := make([]string, 0, len(verrs))
+	for k := range verrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var out []domain.FieldError
+	for _, k := range keys {
+		err := verrs[k]
+		if err == nil {
+			continue
+		}
+		name := k
+		if prefix != "" {
+			name = prefix + "." + k
+		}
+		var nested validation.Errors
+		if errors.As(err, &nested) {
+			out = append(out, fields(name, nested)...)
+			continue
+		}
+		out = append(out, domain.FieldError{Field: name, Description: name + " " + err.Error()})
+	}
+	return out
+}

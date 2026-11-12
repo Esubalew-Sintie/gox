@@ -1,0 +1,41 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	sqlitedriver "modernc.org/sqlite"
+	sqlitelib "modernc.org/sqlite/lib"
+
+	"{{ .Module }}/internal/domain"
+)
+
+// Translate turns a driver error into a catalogue error with the original
+// attached as cause. notFound is the feature's own not-found error.
+func Translate(err error, notFound error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Wrap(notFound, err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return domain.Wrap(domain.ErrRequestTimeout, err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return domain.Wrap(domain.ErrRequestCancelled, err)
+	}
+	var se *sqlitedriver.Error
+	if errors.As(err, &se) {
+		switch se.Code() {
+		case sqlitelib.SQLITE_CONSTRAINT_UNIQUE, sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY:
+			return domain.Wrap(domain.ErrConflict, err)
+		case sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY, sqlitelib.SQLITE_CONSTRAINT_NOTNULL:
+			return domain.Wrap(domain.ErrInvalidData, err)
+		case sqlitelib.SQLITE_BUSY, sqlitelib.SQLITE_LOCKED:
+			return domain.Wrap(domain.ErrConcurrentUpdate, err)
+		}
+	}
+	return domain.Wrap(domain.ErrInternalServerError, err)
+}

@@ -1,9 +1,0 @@
-package {{ .Snake }}
-
-type Service struct { repository *Repository }
-func NewService(repository *Repository) *Service { return &Service{repository: repository} }
-func (s *Service) Create(input Create{{ .Pascal }}Request) {{ .Pascal }} { return s.repository.Create(input) }
-func (s *Service) List() []{{ .Pascal }} { return s.repository.List() }
-func (s *Service) Get(id string) ({{ .Pascal }}, bool) { return s.repository.Get(id) }
-func (s *Service) Update(id string, input Update{{ .Pascal }}Request) ({{ .Pascal }}, bool) { return s.repository.Update(id, input) }
-func (s *Service) Delete(id string) bool { return s.repository.Delete(id) }

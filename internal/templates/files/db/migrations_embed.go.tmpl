@@ -1,0 +1,11 @@
+// Package migrations embeds the golang-migrate files so the binary carries
+// its own schema. Files are pairs: NNNNNN_name.up.sql and .down.sql.
+// gox gen feature adds a pair per feature; gox gen migration adds an empty one.
+package migrations
+
+import "embed"
+
+// FS holds every migration file.
+//
+//go:embed *.sql
+var FS embed.FS

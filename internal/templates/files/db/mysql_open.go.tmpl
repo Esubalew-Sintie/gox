@@ -1,0 +1,38 @@
+// Package mysql holds the connection, the transaction helper, the migration
+// runner and the error translation shared by every repository under it.
+package mysql
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql" // registers the "mysql" driver
+
+	"{{ .Module }}/internal/config"
+)
+
+// Open connects with cfg.DSN and pings. The DSN needs parseTime=true for
+// time columns and multiStatements=true for the migrations.
+func Open(ctx context.Context, cfg config.MySQLConfig) (*sql.DB, error) {
+	db, err := sql.Open("mysql", cfg.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+	if cfg.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(cfg.MaxOpenConns)
+		db.SetMaxIdleConns(cfg.MaxOpenConns)
+	}
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping mysql: %w", err)
+	}
+	return db, nil
+}
+
+// Ready reports whether the database answers, for /readyz.
+func Ready(ctx context.Context, db *sql.DB) error {
+	return db.PingContext(ctx)
+}

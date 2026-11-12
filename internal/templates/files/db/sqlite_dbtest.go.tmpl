@@ -1,0 +1,30 @@
+// Package dbtest opens real databases for repository tests.
+package dbtest
+
+import (
+	"context"
+	"database/sql"
+	"io/fs"
+	"path/filepath"
+	"testing"
+
+	"{{ .Module }}/internal/config"
+	"{{ .Module }}/internal/storage/sqlite"
+)
+
+// OpenSQLite opens a fresh database file in a temporary directory, applies
+// the migrations in fsys, and closes it when the test ends.
+func OpenSQLite(t testing.TB, fsys fs.FS) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	cfg := config.SQLiteConfig{Path: path}
+	if err := sqlite.Migrate(context.Background(), cfg, fsys); err != nil {
+		t.Fatalf("migrate sqlite: %v", err)
+	}
+	db, err := sqlite.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}

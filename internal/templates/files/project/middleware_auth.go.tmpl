@@ -1,0 +1,25 @@
+package middleware
+
+import (
+	"crypto/subtle"
+	"net/http"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/handler/http/response"
+)
+
+// APIKey rejects requests whose X-API-Key header does not match key. It is
+// not applied by default; wrap the routes that need it in app/app.go or in a
+// feature's Routes. Replace it with your real authentication when you have one.
+func APIKey(key string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got := r.Header.Get("X-API-Key")
+			if key == "" || subtle.ConstantTimeCompare([]byte(got), []byte(key)) != 1 {
+				response.Error(w, r, domain.ErrUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

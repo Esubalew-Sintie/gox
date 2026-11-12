@@ -1,0 +1,32 @@
+GOLANGCI_LINT_VERSION ?= v2.15.0
+
+.PHONY: run build test lint tidy check{{ if .IsSQL }} migrate-up migrate-down migrate-version{{ end }}
+
+run:
+	go run ./cmd
+
+build:
+	go build -o bin/{{ .Name }} ./cmd
+
+test:
+	go test -race ./...
+
+lint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+
+tidy:
+	go mod tidy
+
+check:
+	gox check
+{{- if .IsSQL }}
+
+migrate-up:
+	go run ./cmd/migrate up
+
+migrate-down:
+	go run ./cmd/migrate down
+
+migrate-version:
+	go run ./cmd/migrate version
+{{- end }}

@@ -1,0 +1,184 @@
+// Package domain holds the entities, the error catalogue and the shared value
+// types of the service. It imports nothing from the other layers.
+package domain
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"reflect"
+)
+
+// ErrorType is the machine-readable class written to error.type on the wire.
+type ErrorType string
+
+const (
+	ErrorTypeValidation      ErrorType = "validation"
+	ErrorTypeBadRequest      ErrorType = "bad_request"
+	ErrorTypeUnauthorized    ErrorType = "unauthorized"
+	ErrorTypeForbidden       ErrorType = "forbidden"
+	ErrorTypeNotFound        ErrorType = "not_found"
+	ErrorTypeTimeout         ErrorType = "timeout"
+	ErrorTypeConflict        ErrorType = "conflict"
+	ErrorTypePayloadTooLarge ErrorType = "payload_too_large"
+	ErrorTypeRateLimit       ErrorType = "rate_limit"
+	ErrorTypeUnavailable     ErrorType = "unavailable"
+	ErrorTypeExternal        ErrorType = "external_service"
+	ErrorTypeInternal        ErrorType = "internal"
+)
+
+// General errors. Every message is user-facing and is what the client sees.
+// `gox gen feature <name>` appends a <Name> block below and one line per error
+// to each map; `gox destroy feature <name>` removes them. Add your own errors
+// the same way: one errors.New and one line in each map.
+var (
+	ErrInternalServerError = errors.New("Internal server error. Please try again later.")
+	ErrBadRequest          = errors.New("Bad request.")
+	ErrInvalidData         = errors.New("Invalid input data.")
+	ErrEmptyBody           = errors.New("Request body is empty.")
+	ErrMalformedJSON       = errors.New("Request body is not valid JSON.")
+	ErrValidationFailed    = errors.New("Validation failed.")
+	ErrUnauthorized        = errors.New("Unauthorized.")
+	ErrForbiddenRequest    = errors.New("Forbidden request.")
+	ErrNotFound            = errors.New("Data not found.")
+	ErrRequestTimeout      = errors.New("Request timeout.")
+	ErrRequestCancelled    = errors.New("The request was cancelled.")
+	ErrConflict            = errors.New("This data already exists.")
+	ErrConcurrentUpdate    = errors.New("Another operation is in progress. Please try again in a moment.")
+	ErrPayloadTooLarge     = errors.New("Request body is too large.")
+	ErrRateLimitExceeded   = errors.New("Too many requests. Please try again later.")
+	ErrServiceUnavailable  = errors.New("Service is temporarily unavailable. Please try again shortly.")
+	ErrExternalService     = errors.New("An external service failed. Please try again later.")
+)
+
+// ErrorMap maps errors to HTTP status codes.
+var ErrorMap = map[error]int{
+	ErrInternalServerError: http.StatusInternalServerError,
+	ErrBadRequest:          http.StatusBadRequest,
+	ErrInvalidData:         http.StatusBadRequest,
+	ErrEmptyBody:           http.StatusBadRequest,
+	ErrMalformedJSON:       http.StatusBadRequest,
+	ErrValidationFailed:    http.StatusBadRequest,
+	ErrUnauthorized:        http.StatusUnauthorized,
+	ErrForbiddenRequest:    http.StatusForbidden,
+	ErrNotFound:            http.StatusNotFound,
+	ErrRequestTimeout:      http.StatusRequestTimeout,
+	ErrRequestCancelled:    http.StatusBadRequest,
+	ErrConflict:            http.StatusConflict,
+	ErrConcurrentUpdate:    http.StatusConflict,
+	ErrPayloadTooLarge:     http.StatusRequestEntityTooLarge,
+	ErrRateLimitExceeded:   http.StatusTooManyRequests,
+	ErrServiceUnavailable:  http.StatusServiceUnavailable,
+	ErrExternalService:     http.StatusBadGateway,
+}
+
+// ErrorTypeMap maps errors to error types.
+var ErrorTypeMap = map[error]ErrorType{
+	ErrInternalServerError: ErrorTypeInternal,
+	ErrBadRequest:          ErrorTypeBadRequest,
+	ErrInvalidData:         ErrorTypeBadRequest,
+	ErrEmptyBody:           ErrorTypeBadRequest,
+	ErrMalformedJSON:       ErrorTypeBadRequest,
+	ErrValidationFailed:    ErrorTypeValidation,
+	ErrUnauthorized:        ErrorTypeUnauthorized,
+	ErrForbiddenRequest:    ErrorTypeForbidden,
+	ErrNotFound:            ErrorTypeNotFound,
+	ErrRequestTimeout:      ErrorTypeTimeout,
+	ErrRequestCancelled:    ErrorTypeBadRequest,
+	ErrConflict:            ErrorTypeConflict,
+	ErrConcurrentUpdate:    ErrorTypeConflict,
+	ErrPayloadTooLarge:     ErrorTypePayloadTooLarge,
+	ErrRateLimitExceeded:   ErrorTypeRateLimit,
+	ErrServiceUnavailable:  ErrorTypeUnavailable,
+	ErrExternalService:     ErrorTypeExternal,
+}
+
+// Info is what the catalogue knows about an error.
+type Info struct {
+	Err    error // the catalogue entry that matched; Err.Error() is the user-facing message
+	Status int
+	Type   ErrorType
+}
+
+// Lookup finds the first catalogue entry in err's wrap chain, so an error
+// wrapped with fmt.Errorf("...: %w", err) or Wrap still resolves. ok is false
+// when nothing in the chain is in ErrorMap.
+func Lookup(err error) (Info, bool) {
+	for err != nil {
+		if reflect.TypeOf(err).Comparable() {
+			if status, ok := ErrorMap[err]; ok {
+				typ, ok := ErrorTypeMap[err]
+				if !ok {
+					typ = ErrorTypeInternal
+				}
+				return Info{Err: err, Status: status, Type: typ}, true
+			}
+		}
+		switch u := err.(type) { //nolint:errorlint // walks the chain by hand, which is the point
+		case interface{ Unwrap() error }:
+			err = u.Unwrap()
+		case interface{ Unwrap() []error }:
+			for _, inner := range u.Unwrap() {
+				if info, ok := Lookup(inner); ok {
+					return info, true
+				}
+			}
+			return Info{}, false
+		default:
+			return Info{}, false
+		}
+	}
+	return Info{}, false
+}
+
+// Wrap attaches cause to a catalogue entry. Lookup, errors.Is and errors.As
+// see both: the wire shows the entry's message, the log shows the whole chain.
+func Wrap(entry, cause error) error {
+	if cause == nil {
+		return entry
+	}
+	return fmt.Errorf("%w (%w)", entry, cause)
+}
+
+// Retryable reports whether the client may repeat the request that failed
+// with err: timeouts, unavailability, rate limits and concurrent updates.
+func Retryable(err error) bool {
+	info, ok := Lookup(err)
+	if !ok {
+		return false
+	}
+	switch info.Type {
+	case ErrorTypeTimeout, ErrorTypeUnavailable, ErrorTypeRateLimit:
+		return true
+	}
+	return errors.Is(info.Err, ErrConcurrentUpdate)
+}
+
+// FieldError describes one invalid field of a request.
+type FieldError struct {
+	Field       string
+	Description string
+}
+
+// ValidationError carries field details. It unwraps to ErrValidationFailed,
+// so ErrorMap and ErrorTypeMap resolve it to 400 / validation. Its message is
+// the first field's description, which is what the sample service returns.
+type ValidationError struct {
+	Fields []FieldError
+}
+
+// NewValidationError builds a ValidationError from one or more field errors.
+func NewValidationError(fields ...FieldError) *ValidationError {
+	return &ValidationError{Fields: fields}
+}
+
+func (e *ValidationError) Error() string {
+	if len(e.Fields) > 0 {
+		return e.Fields[0].Description
+	}
+	return ErrValidationFailed.Error()
+}
+
+// Unwrap makes errors.Is(err, ErrValidationFailed) true and lets Lookup find
+// the status and type.
+func (e *ValidationError) Unwrap() error { return ErrValidationFailed }

@@ -1,0 +1,138 @@
+// Package {{ .Name.Snake }} is the {{ .DBTitle }} implementation of storage.{{ .Name.Pascal }}Repository.
+package {{ .Name.Snake }}
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"log/slog"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/storage"
+	"{{ .Module }}/internal/storage/{{ .DBPackage }}"
+)
+
+const (
+	insertSQL          = `{{ .SQL.Insert }}`
+	selectSQL          = `{{ .SQL.Select }}`
+	selectForUpdateSQL = `{{ .SQL.SelectForUpdate }}`
+	listSQL            = `{{ .SQL.List }}`
+	countSQL           = `{{ .SQL.Count }}`
+	updateSQL          = `{{ .SQL.Update }}`
+	deleteSQL          = `{{ .SQL.Delete }}`
+)
+
+// Repository stores {{ .PluralTitle | lower }} in the {{ .SQL.Table }} table.
+type Repository struct {
+	db  *sql.DB
+	log *slog.Logger
+}
+
+var _ storage.{{ .Name.Pascal }}Repository = (*Repository)(nil)
+
+// New wires the repository to the database.
+func New(db *sql.DB, log *slog.Logger) *Repository {
+	return &Repository{db: db, log: log}
+}
+
+// scanner is what *sql.Row and *sql.Rows have in common.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+// Create inserts e, assigning an id when it has none.
+func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+	if e.ID == "" {
+		e.ID = domain.NewID()
+	}
+	_, err := r.db.ExecContext(ctx, insertSQL, {{ .InsertArgs }})
+	return translate(err)
+}
+
+// Get returns one {{ .Title | lower }} by id.
+func (r *Repository) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	return scan(r.db.QueryRowContext(ctx, selectSQL, id))
+}
+
+// List returns one page in creation order and the total count.
+func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+	page = page.Normalized()
+	var total int64
+	if err := r.db.QueryRowContext(ctx, countSQL).Scan(&total); err != nil {
+		return nil, 0, translate(err)
+	}
+	rows, err := r.db.QueryContext(ctx, listSQL, page.Limit, page.Offset())
+	if err != nil {
+		return nil, 0, translate(err)
+	}
+	defer func() { _ = rows.Close() }()
+	items := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, page.Limit)
+	for rows.Next() {
+		e, err := scan(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, translate(err)
+	}
+	return items, total, nil
+}
+
+// Update reads the row inside a transaction, applies fn and writes the result.
+func (r *Repository) Update(ctx context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	var out *{{ .Name.Snake }}.{{ .Name.Pascal }}
+	err := {{ .DBPackage }}.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+		e, err := scan(tx.QueryRowContext(ctx, selectForUpdateSQL, id))
+		if err != nil {
+			return err
+		}
+		if err := fn(e); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, updateSQL, {{ .UpdateArgs }}); err != nil {
+			return translate(err)
+		}
+		out = e
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Delete removes one {{ .Title | lower }}.
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, deleteSQL, id)
+	if err != nil {
+		return translate(err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return domain.Err{{ .Name.Pascal }}NotFound
+	}
+	return nil
+}
+
+func scan(row scanner) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	var e {{ .Name.Snake }}.{{ .Name.Pascal }}
+	if err := row.Scan({{ .ScanArgs }}); err != nil {
+		return nil, translate(err)
+	}
+	return &e, nil
+}
+
+// translate maps driver errors to the catalogue; a unique violation becomes
+// the feature's conflict error.
+func translate(err error) error {
+	if err == nil {
+		return nil
+	}
+	err = {{ .DBPackage }}.Translate(err, domain.Err{{ .Name.Pascal }}NotFound)
+	if errors.Is(err, domain.ErrConflict) {
+		return domain.Wrap(domain.Err{{ .Name.Pascal }}Conflict, err)
+	}
+	return err
+}

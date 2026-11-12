@@ -1,0 +1,34 @@
+package app
+
+import (
+	"context"
+	"log/slog"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"{{ .Module }}/internal/config"
+	mongostorage "{{ .Module }}/internal/storage/mongo"
+)
+
+// InitMongo connects to the cluster, pings it, and returns the database the
+// repositories use. Client options are tuned here.
+func InitMongo(ctx context.Context, cfg config.MongoConfig, log *slog.Logger) (*mongo.Database, error) {
+	db, err := mongostorage.Connect(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("mongo connected", "database", cfg.Database)
+	return db, nil
+}
+
+// CloseMongo disconnects the client behind the database.
+func CloseMongo(ctx context.Context, db *mongo.Database, log *slog.Logger) {
+	if db == nil {
+		return
+	}
+	if err := db.Client().Disconnect(ctx); err != nil {
+		log.Warn("mongo disconnect", "error", err)
+		return
+	}
+	log.Info("mongo closed")
+}

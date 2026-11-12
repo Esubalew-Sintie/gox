@@ -1,0 +1,16 @@
+package domain
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+)
+
+// NewID returns a random 32-character hex identifier. Every repository
+// assigns one to an entity created without an id.
+func NewID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("domain: random source unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}

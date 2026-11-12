@@ -1,0 +1,15 @@
+// Package testutil holds helpers shared by tests.
+package testutil
+
+import (
+	"context"
+	"testing"
+)
+
+// Context returns a context that is cancelled when the test ends.
+func Context(t testing.TB) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
+}

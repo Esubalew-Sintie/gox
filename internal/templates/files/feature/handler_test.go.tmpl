@@ -1,0 +1,104 @@
+package {{ .Name.Snake }}_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	{{ .Name.Snake }}http "{{ .Module }}/internal/handler/http/{{ .Name.Snake }}"
+	{{ .Name.Snake }}svc "{{ .Module }}/internal/service/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/testutil/memstore"
+)
+
+// listPath is the collection path as the handler's own router sees it.
+const listPath = "{{ .ListPath }}"
+
+func itemPath(id string) string { return "{{ .ItemPrefix }}" + id }
+
+func newRoutes() http.Handler {
+	svc := {{ .Name.Snake }}svc.New(memstore.New{{ .Name.Pascal }}Store(), slog.Default())
+	return {{ .Name.Snake }}http.New(svc, slog.Default()).Routes()
+}
+
+func do(t *testing.T, h http.Handler, method, path string, body any) (int, map[string]any) {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("%s %s: response is not JSON: %s", method, path, rec.Body.String())
+	}
+	return rec.Code, out
+}
+
+func validBody() map[string]any {
+	return map[string]any{
+{{- range .Fields }}
+{{- if not .Nullable }}
+		"{{ .Name.Snake }}": {{ .JSONSample }},
+{{- end }}
+{{- end }}
+	}
+}
+
+func TestCreateGetAndNotFound(t *testing.T) {
+	h := newRoutes()
+
+	code, body := do(t, h, http.MethodPost, listPath, validBody())
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %v", code, body)
+	}
+	data, _ := body["data"].(map[string]any)
+	id, _ := data["id"].(string)
+	if id == "" {
+		t.Fatalf("create must return an id: %v", body)
+	}
+
+	code, body = do(t, h, http.MethodGet, itemPath(id), nil)
+	if code != http.StatusOK || body["has_retry"] != false {
+		t.Fatalf("get: %d %v", code, body)
+	}
+
+	code, body = do(t, h, http.MethodGet, itemPath("missing"), nil)
+	e, _ := body["error"].(map[string]any)
+	if code != http.StatusNotFound || e["type"] != "not_found" {
+		t.Fatalf("missing: %d %v", code, body)
+	}
+}
+
+func TestListHasMeta(t *testing.T) {
+	h := newRoutes()
+	for range 3 {
+		if code, body := do(t, h, http.MethodPost, listPath, validBody()); code != http.StatusCreated {
+			t.Fatalf("create: %d %v", code, body)
+		}
+	}
+	code, body := do(t, h, http.MethodGet, listPath+"?page=1&limit=2", nil)
+	meta, _ := body["meta"].(map[string]any)
+	if code != http.StatusOK || meta["total_docs"] != float64(3) || meta["has_next_page"] != true {
+		t.Fatalf("list: %d %v", code, body)
+	}
+}
+{{- with .Required }}
+
+func TestCreateValidation(t *testing.T) {
+	body := validBody()
+	body["{{ (index . 0).Name.Snake }}"] = ""
+	code, out := do(t, newRoutes(), http.MethodPost, listPath, body)
+	e, _ := out["error"].(map[string]any)
+	if code != http.StatusBadRequest || e["type"] != "validation" {
+		t.Fatalf("validation: %d %v", code, out)
+	}
+}
+{{- end }}

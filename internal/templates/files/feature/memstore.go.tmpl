@@ -1,0 +1,92 @@
+package memstore
+
+import (
+	"context"
+	"slices"
+	"sync"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/storage"
+)
+
+// {{ .Name.Pascal }}Store is an in-memory storage.{{ .Name.Pascal }}Repository. It stores
+// copies, so callers never share memory with it.
+type {{ .Name.Pascal }}Store struct {
+	mu    sync.RWMutex
+	items map[string]{{ .Name.Snake }}.{{ .Name.Pascal }}
+	order []string
+}
+
+var _ storage.{{ .Name.Pascal }}Repository = (*{{ .Name.Pascal }}Store)(nil)
+
+// New{{ .Name.Pascal }}Store returns an empty store.
+func New{{ .Name.Pascal }}Store() *{{ .Name.Pascal }}Store {
+	return &{{ .Name.Pascal }}Store{items: map[string]{{ .Name.Snake }}.{{ .Name.Pascal }}{}}
+}
+
+// Create stores a copy of e, assigning an id when it has none.
+func (s *{{ .Name.Pascal }}Store) Create(_ context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e.ID == "" {
+		e.ID = NewID()
+	}
+	if _, exists := s.items[e.ID]; exists {
+		return domain.Err{{ .Name.Pascal }}Conflict
+	}
+	s.items[e.ID] = *e
+	s.order = append(s.order, e.ID)
+	return nil
+}
+
+// Get returns a copy of the entity.
+func (s *{{ .Name.Pascal }}Store) Get(_ context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e, ok := s.items[id]
+	if !ok {
+		return nil, domain.Err{{ .Name.Pascal }}NotFound
+	}
+	return &e, nil
+}
+
+// List returns one page in insertion order and the total count.
+func (s *{{ .Name.Pascal }}Store) List(_ context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, len(s.order))
+	for _, id := range s.order {
+		e := s.items[id]
+		all = append(all, &e)
+	}
+	items, total := Slice(all, page)
+	return items, total, nil
+}
+
+// Update applies fn to a copy under the lock and stores the result.
+func (s *{{ .Name.Pascal }}Store) Update(_ context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.items[id]
+	if !ok {
+		return nil, domain.Err{{ .Name.Pascal }}NotFound
+	}
+	if err := fn(&e); err != nil {
+		return nil, err
+	}
+	s.items[id] = e
+	return &e, nil
+}
+
+// Delete removes the entity.
+func (s *{{ .Name.Pascal }}Store) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.items[id]; !ok {
+		return domain.Err{{ .Name.Pascal }}NotFound
+	}
+	delete(s.items, id)
+	s.order = slices.DeleteFunc(s.order, func(x string) bool { return x == id })
+	return nil
+}

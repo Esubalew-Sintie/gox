@@ -1,0 +1,23 @@
+// Command {{ .Name }} starts the service.
+package main
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"{{ .Module }}/app"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := app.Initialize(ctx); err != nil {
+		slog.Error("application failed", "error", err)
+		stop()
+		os.Exit(1)
+	}
+}

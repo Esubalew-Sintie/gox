@@ -1,0 +1,44 @@
+// Package sqlite holds the connection, the transaction helper, the migration
+// runner and the error translation shared by every repository under it.
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	_ "modernc.org/sqlite" // registers the "sqlite" driver
+
+	"{{ .Module }}/internal/config"
+)
+
+// Open opens the database file at cfg.Path, creating its directory, with
+// WAL journaling, a busy timeout, foreign keys on and immediate write
+// transactions so concurrent updates wait instead of failing.
+func Open(ctx context.Context, cfg config.SQLiteConfig) (*sql.DB, error) {
+	if cfg.Path != ":memory:" {
+		if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); err != nil {
+			return nil, fmt.Errorf("create sqlite directory: %w", err)
+		}
+	}
+	dsn := "file:" + cfg.Path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_txlock=immediate"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if cfg.Path == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
+	return db, nil
+}
+
+// Ready reports whether the database answers, for /readyz.
+func Ready(ctx context.Context, db *sql.DB) error {
+	return db.PingContext(ctx)
+}

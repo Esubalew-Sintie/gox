@@ -1,0 +1,100 @@
+// Package response writes every HTTP response of the service. Handlers call
+// Success or Error and never build JSON themselves.
+package response
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+
+	"{{ .Module }}/internal/domain"
+)
+
+// RequestIDHeader is set by the request-id middleware on the response.
+const RequestIDHeader = "X-Request-ID"
+
+// Option adjusts an envelope before it is written.
+type Option func(*Envelope)
+
+// WithMeta attaches a meta block, usually domain.PageMeta.
+func WithMeta(meta any) Option { return func(e *Envelope) { e.Meta = meta } }
+
+// WithRetry forces has_retry to true.
+func WithRetry() Option { return func(e *Envelope) { e.HasRetry = true } }
+
+// Success writes a success envelope. Use http.StatusCreated for creates.
+func Success(w http.ResponseWriter, r *http.Request, status int, message string, data any, opts ...Option) {
+	env := Envelope{Status: status, Message: message, Data: data}
+	for _, o := range opts {
+		o(&env)
+	}
+	write(w, r, env)
+}
+
+// Error writes an error envelope. The status and type come from
+// domain.ErrorMap and domain.ErrorTypeMap through domain.Lookup, which walks
+// the wrap chain, so services may wrap with fmt.Errorf("...: %w", err). The
+// message is the matched entry's text; a *domain.ValidationError also fills
+// details. Anything not in the maps is written as ErrInternalServerError.
+// The full error goes to the log with the request id, never to the client.
+func Error(w http.ResponseWriter, r *http.Request, err error, opts ...Option) {
+	info, known := domain.Lookup(err)
+	if !known {
+		info, _ = domain.Lookup(domain.ErrInternalServerError)
+	}
+	body := &ErrorBody{Type: info.Type, Message: info.Err.Error()}
+	var ve *domain.ValidationError
+	if errors.As(err, &ve) {
+		body.Message = ve.Error()
+		for _, f := range ve.Fields {
+			body.Details = append(body.Details, FieldError{Field: f.Field, Description: f.Description})
+		}
+	}
+	env := Envelope{Status: info.Status, Error: body, HasRetry: domain.Retryable(err)}
+	for _, o := range opts {
+		o(&env)
+	}
+	logError(r.Context(), r, w.Header().Get(RequestIDHeader), env.Status, info.Type, err)
+	write(w, r, env)
+}
+
+// write encodes to a buffer first so an encoding failure can still produce a
+// well-formed 500 and the headers are written exactly once.
+func write(w http.ResponseWriter, r *http.Request, env Envelope) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(env); err != nil {
+		info, _ := domain.Lookup(domain.ErrInternalServerError)
+		logError(r.Context(), r, w.Header().Get(RequestIDHeader), info.Status, info.Type, err)
+		buf.Reset()
+		_ = json.NewEncoder(&buf).Encode(Envelope{
+			Status: info.Status,
+			Error:  &ErrorBody{Type: info.Type, Message: info.Err.Error()},
+		})
+		env.Status = info.Status
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(env.Status)
+	_, _ = w.Write(buf.Bytes())
+}
+
+func logError(ctx context.Context, r *http.Request, requestID string, status int, typ domain.ErrorType, err error) {
+	attrs := []any{
+		slog.String("request_id", requestID),
+		slog.String("method", r.Method),
+		slog.String("path", r.URL.Path),
+		slog.Int("status", status),
+		slog.String("type", string(typ)),
+		slog.String("error", err.Error()),
+	}
+	switch typ {
+	case domain.ErrorTypeInternal:
+		slog.ErrorContext(ctx, "request failed", attrs...)
+	case domain.ErrorTypeUnavailable, domain.ErrorTypeTimeout, domain.ErrorTypeExternal:
+		slog.WarnContext(ctx, "request failed", attrs...)
+	default:
+		slog.InfoContext(ctx, "request rejected", attrs...)
+	}
+}

@@ -1,0 +1,50 @@
+package mysql
+
+import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"net"
+
+	"github.com/go-sql-driver/mysql"
+
+	"{{ .Module }}/internal/domain"
+)
+
+// Translate turns a driver error into a catalogue error with the original
+// attached as cause. notFound is the feature's own not-found error.
+func Translate(err error, notFound error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Wrap(notFound, err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return domain.Wrap(domain.ErrRequestTimeout, err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return domain.Wrap(domain.ErrRequestCancelled, err)
+	}
+	var my *mysql.MySQLError
+	if errors.As(err, &my) {
+		switch my.Number {
+		case 1062: // duplicate entry
+			return domain.Wrap(domain.ErrConflict, err)
+		case 1048, 1264, 1406, 1451, 1452: // not null, out of range, too long, foreign key
+			return domain.Wrap(domain.ErrInvalidData, err)
+		case 1213: // deadlock
+			return domain.Wrap(domain.ErrConcurrentUpdate, err)
+		case 1205: // lock wait timeout
+			return domain.Wrap(domain.ErrRequestTimeout, err)
+		case 1040, 1053, 2002, 2003, 2006, 2013: // too many connections, shutdown, connection lost
+			return domain.Wrap(domain.ErrServiceUnavailable, err)
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) || errors.Is(err, driver.ErrBadConn) {
+		return domain.Wrap(domain.ErrServiceUnavailable, err)
+	}
+	return domain.Wrap(domain.ErrInternalServerError, err)
+}

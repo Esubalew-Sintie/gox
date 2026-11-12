@@ -1,0 +1,126 @@
+package {{ .Name.Snake }}_test
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	{{ .Name.Snake }}repo "{{ .Module }}/internal/storage/postgres/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/testutil"
+	"{{ .Module }}/internal/testutil/dbtest"
+	"{{ .Module }}/migrations"
+)
+
+var pool *pgxpool.Pool
+
+// TestMain starts one Postgres container for the package. Under -short the
+// tests skip themselves and no container is started.
+func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		os.Exit(m.Run())
+	}
+	ctx := context.Background()
+	p, stop, err := dbtest.StartPostgres(ctx, migrations.FS)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "start postgres:", err)
+		os.Exit(1)
+	}
+	pool = p
+	code := m.Run()
+	stop()
+	os.Exit(code)
+}
+
+func newRepo(t *testing.T) *{{ .Name.Snake }}repo.Repository {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("needs Docker; run without -short")
+	}
+	if _, err := pool.Exec(context.Background(), "TRUNCATE {{ .SQL.Table }}"); err != nil {
+		t.Fatal(err)
+	}
+	return {{ .Name.Snake }}repo.New(pool, slog.Default())
+}
+
+func validInput() {{ .Name.Snake }}.CreateInput {
+	return {{ .Name.Snake }}.CreateInput{
+{{- range .Fields }}
+{{- if not .Nullable }}
+		{{ .Name.Pascal }}: {{ .Sample }},
+{{- end }}
+{{- end }}
+	}
+}
+
+func TestCreateGetListUpdateDelete(t *testing.T) {
+	ctx := testutil.Context(t)
+	repo := newRepo(t)
+
+	e, err := {{ .Name.Snake }}.New(validInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(ctx, e); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := repo.Create(ctx, e); !errors.Is(err, domain.Err{{ .Name.Pascal }}Conflict) {
+		t.Fatalf("duplicate id must conflict, got %v", err)
+	}
+
+	got, err := repo.Get(ctx, e.ID)
+	if err != nil || got.ID != e.ID {
+		t.Fatalf("get: %+v %v", got, err)
+	}
+
+	items, total, err := repo.List(ctx, domain.PageRequest{Page: 1, Limit: 10})
+	if err != nil || total != 1 || len(items) != 1 || items[0].ID != e.ID {
+		t.Fatalf("list: %d items, total %d, %v", len(items), total, err)
+	}
+
+	before := time.Now().UTC().Add(-time.Second)
+	updated, err := repo.Update(ctx, e.ID, func(x *{{ .Name.Snake }}.{{ .Name.Pascal }}) error { return x.Update(validInput()) })
+	if err != nil || updated.ID != e.ID || updated.UpdatedAt.Before(before) {
+		t.Fatalf("update: %+v %v", updated, err)
+	}
+	if _, err := repo.Update(ctx, "missing", func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error { return nil }); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
+		t.Fatalf("update missing: %v", err)
+	}
+
+	if err := repo.Delete(ctx, e.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := repo.Get(ctx, e.ID); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
+		t.Fatalf("get after delete: %v", err)
+	}
+	if err := repo.Delete(ctx, e.ID); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+}
+
+func TestListPages(t *testing.T) {
+	ctx := testutil.Context(t)
+	repo := newRepo(t)
+	for range 3 {
+		e, err := {{ .Name.Snake }}.New(validInput())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.Create(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, total, err := repo.List(ctx, domain.PageRequest{Page: 2, Limit: 2})
+	if err != nil || total != 3 || len(items) != 1 {
+		t.Fatalf("page 2: %d items, total %d, %v", len(items), total, err)
+	}
+}

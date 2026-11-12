@@ -1,0 +1,74 @@
+// Command migrate applies or reverts the embedded migrations against the
+// database in config.yaml: migrate up | down | version.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/golang-migrate/migrate/v4"
+
+	"{{ .Module }}/internal/config"
+	"{{ .Module }}/internal/storage/{{ .DBPackage }}"
+	"{{ .Module }}/migrations"
+)
+
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, "migrate:", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	if len(os.Args) != 2 {
+		return errors.New("usage: migrate up | down | version")
+	}
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+{{- if .Postgres }}
+	pool, err := postgres.NewPool(ctx, cfg.Postgres)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	m, err := postgres.Migrator(pool, migrations.FS)
+{{- else }}
+	db, err := {{ .DBPackage }}.Open(ctx, cfg.{{ .InfraField }})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	m, err := {{ .DBPackage }}.Migrator(db, migrations.FS)
+{{- end }}
+	if err != nil {
+		return err
+	}
+	defer func() { _, _ = m.Close() }()
+
+	switch os.Args[1] {
+	case "up":
+		err = m.Up()
+	case "down":
+		err = m.Steps(-1)
+	case "version":
+		v, dirty, verr := m.Version()
+		if verr != nil {
+			return verr
+		}
+		fmt.Printf("version %d dirty=%v\n", v, dirty)
+		return nil
+	default:
+		return fmt.Errorf("unknown command %q; use up, down or version", os.Args[1])
+	}
+	if errors.Is(err, migrate.ErrNoChange) {
+		fmt.Println("no change")
+		return nil
+	}
+	return err
+}

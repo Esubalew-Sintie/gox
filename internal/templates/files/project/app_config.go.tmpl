@@ -1,0 +1,9 @@
+package app
+
+import "{{ .Module }}/internal/config"
+
+// InitConfig loads config.yaml from the working directory and applies the
+// APP_ environment overrides (APP_SERVER__PORT sets server.port).
+func InitConfig() (*config.Config, error) {
+	return config.Load("config.yaml")
+}

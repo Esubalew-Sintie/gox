@@ -1,0 +1,76 @@
+package {{ .Name.Snake }}_test
+
+import (
+	"errors"
+	"log/slog"
+	"testing"
+	"time"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	{{ .Name.Snake }}svc "{{ .Module }}/internal/service/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/testutil"
+	"{{ .Module }}/internal/testutil/memstore"
+)
+
+func newService() *{{ .Name.Snake }}svc.Service {
+	return {{ .Name.Snake }}svc.New(memstore.New{{ .Name.Pascal }}Store(), slog.Default())
+}
+
+func validInput() {{ .Name.Snake }}.CreateInput {
+	return {{ .Name.Snake }}.CreateInput{
+{{- range .Fields }}
+{{- if not .Nullable }}
+		{{ .Name.Pascal }}: {{ .Sample }},
+{{- end }}
+{{- end }}
+	}
+}
+
+func TestCreateGetListUpdateDelete(t *testing.T) {
+	ctx := testutil.Context(t)
+	svc := newService()
+
+	created, err := svc.Create(ctx, validInput())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatal("create must assign an id")
+	}
+
+	got, err := svc.Get(ctx, created.ID)
+	if err != nil || got.ID != created.ID {
+		t.Fatalf("get: %+v %v", got, err)
+	}
+
+	items, total, err := svc.List(ctx, domain.PageRequest{Page: 1, Limit: 10})
+	if err != nil || total != 1 || len(items) != 1 {
+		t.Fatalf("list: %d items, total %d, %v", len(items), total, err)
+	}
+
+	updated, err := svc.Update(ctx, created.ID, validInput())
+	if err != nil || updated.UpdatedAt.Before(created.UpdatedAt) {
+		t.Fatalf("update: %+v %v", updated, err)
+	}
+
+	if err := svc.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := svc.Get(ctx, created.ID); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
+		t.Fatalf("expected not found after delete, got %v", err)
+	}
+	if _, err := svc.Update(ctx, created.ID, validInput()); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
+		t.Fatalf("expected not found on update, got %v", err)
+	}
+}
+{{- with .Required }}
+
+func TestCreateRejectsInvalidInput(t *testing.T) {
+	in := validInput()
+	in.{{ (index . 0).Name.Pascal }} = ""
+	if _, err := newService().Create(testutil.Context(t), in); !errors.Is(err, domain.Err{{ $.Name.Pascal }}Invalid) {
+		t.Fatalf("expected invalid, got %v", err)
+	}
+}
+{{- end }}

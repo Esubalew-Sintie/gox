@@ -1,0 +1,134 @@
+// Package config holds the service configuration, loaded from config.yaml
+// and overridden by APP_ environment variables, where a double underscore
+// separates levels: APP_SERVER__LOG_LEVEL sets server.log_level.
+//
+// gox appends a struct per capability (RedisConfig, KafkaConfig, ...) and a
+// field on Config when the capability is added, and removes them on remove.
+// Add your own fields freely; gox never touches them.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/env"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
+)
+
+// EnvPrefix is the prefix of environment overrides.
+const EnvPrefix = "APP_"
+
+// Config is the whole configuration.
+type Config struct {
+	Server ServerConfig `koanf:"server"`
+{{- if .Postgres }}
+	Postgres PostgresConfig `koanf:"postgres"`
+{{- end }}
+{{- if .MySQL }}
+	MySQL MySQLConfig `koanf:"mysql"`
+{{- end }}
+{{- if .SQLite }}
+	SQLite SQLiteConfig `koanf:"sqlite"`
+{{- end }}
+{{- if .Mongo }}
+	Mongo MongoConfig `koanf:"mongo"`
+{{- end }}
+}
+{{- if .Postgres }}
+
+// PostgresConfig is the connection pool.
+type PostgresConfig struct {
+	URL         string `koanf:"url"`
+	MaxConns    int32  `koanf:"max_conns"`
+	AutoMigrate bool   `koanf:"auto_migrate"`
+}
+{{- end }}
+{{- if .MySQL }}
+
+// MySQLConfig is the connection pool. The DSN keeps parseTime=true and
+// multiStatements=true, which the time columns and the migrations need.
+type MySQLConfig struct {
+	DSN          string `koanf:"dsn"`
+	MaxOpenConns int    `koanf:"max_open_conns"`
+	AutoMigrate  bool   `koanf:"auto_migrate"`
+}
+{{- end }}
+{{- if .SQLite }}
+
+// SQLiteConfig is the database file.
+type SQLiteConfig struct {
+	Path        string `koanf:"path"`
+	AutoMigrate bool   `koanf:"auto_migrate"`
+}
+{{- end }}
+{{- if .Mongo }}
+
+// MongoConfig is the cluster and the database name.
+type MongoConfig struct {
+	URI      string `koanf:"uri"`
+	Database string `koanf:"database"`
+}
+{{- end }}
+
+// ServerConfig is the HTTP server.
+type ServerConfig struct {
+	Port            int           `koanf:"port"`
+	Environment     string        `koanf:"environment"`
+	LogLevel        string        `koanf:"log_level"`
+	ReadTimeout     time.Duration `koanf:"read_timeout"`
+	WriteTimeout    time.Duration `koanf:"write_timeout"`
+	ShutdownTimeout time.Duration `koanf:"shutdown_timeout"`
+}
+
+// Default returns the values used when config.yaml and the environment say nothing.
+func Default() Config {
+	return Config{
+		Server: ServerConfig{
+			Port:            8080,
+			Environment:     "development",
+			LogLevel:        "info",
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    10 * time.Second,
+			ShutdownTimeout: 10 * time.Second,
+		},
+{{- if .Postgres }}
+		Postgres: PostgresConfig{URL: "postgres://app:app@localhost:5432/app?sslmode=disable", MaxConns: 10, AutoMigrate: true},
+{{- end }}
+{{- if .MySQL }}
+		MySQL: MySQLConfig{DSN: "app:app@tcp(localhost:3306)/app?parseTime=true&multiStatements=true", MaxOpenConns: 10, AutoMigrate: true},
+{{- end }}
+{{- if .SQLite }}
+		SQLite: SQLiteConfig{Path: "data/{{ .Name }}.db", AutoMigrate: true},
+{{- end }}
+{{- if .Mongo }}
+		Mongo: MongoConfig{URI: "mongodb://localhost:27017", Database: "{{ .Name }}"},
+{{- end }}
+	}
+}
+
+// Load reads path when it exists, then the environment, over Default.
+func Load(path string) (*Config, error) {
+	k := koanf.New(".")
+	if _, err := os.Stat(path); err == nil {
+		if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+			return nil, fmt.Errorf("load %s: %w", path, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if err := k.Load(env.Provider(EnvPrefix, ".", func(s string) string {
+		return strings.ReplaceAll(strings.ToLower(strings.TrimPrefix(s, EnvPrefix)), "__", ".")
+	}), nil); err != nil {
+		return nil, fmt.Errorf("load environment: %w", err)
+	}
+	cfg := Default()
+	if err := k.Unmarshal("", &cfg); err != nil {
+		return nil, fmt.Errorf("decode configuration: %w", err)
+	}
+	return &cfg, nil
+}

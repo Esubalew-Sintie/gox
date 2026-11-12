@@ -1,0 +1,79 @@
+package domain
+
+// PageRequest is a page number and size, parsed by the transport layer.
+type PageRequest struct {
+	Page  int
+	Limit int
+}
+
+const (
+	DefaultPageLimit = 10
+	MaxPageLimit     = 100
+)
+
+// Normalized returns a copy with defaults and bounds applied.
+func (p PageRequest) Normalized() PageRequest {
+	if p.Page <= 0 {
+		p.Page = 1
+	}
+	if p.Limit <= 0 {
+		p.Limit = DefaultPageLimit
+	}
+	if p.Limit > MaxPageLimit {
+		p.Limit = MaxPageLimit
+	}
+	return p
+}
+
+// Offset is the number of rows to skip.
+func (p PageRequest) Offset() int {
+	n := p.Normalized()
+	return (n.Page - 1) * n.Limit
+}
+
+// PageMeta is the pagination block returned in "meta" on list responses.
+// The JSON names match the sample service's shared MetaData type.
+type PageMeta struct {
+	TotalDocs     int64 `json:"total_docs"`
+	Limit         int64 `json:"limit"`
+	TotalPages    int64 `json:"total_pages"`
+	Page          int64 `json:"page"`
+	PagingCounter int64 `json:"paging_counter"`
+	HasPrevPage   bool  `json:"has_prev_page"`
+	HasNextPage   bool  `json:"has_next_page"`
+	PrevPage      int64 `json:"prev_page,omitempty"`
+	NextPage      int64 `json:"next_page,omitempty"`
+}
+
+// NewPageMeta computes the block from a total count and the request.
+func NewPageMeta(total int64, req PageRequest) PageMeta {
+	n := req.Normalized()
+	limit := int64(n.Limit)
+	page := int64(n.Page)
+
+	var totalPages int64
+	if total > 0 {
+		totalPages = (total + limit - 1) / limit
+	} else {
+		page = 1
+	}
+
+	m := PageMeta{
+		TotalDocs:   total,
+		Limit:       limit,
+		TotalPages:  totalPages,
+		Page:        page,
+		HasPrevPage: page > 1,
+		HasNextPage: page < totalPages,
+	}
+	if total > 0 {
+		m.PagingCounter = (page-1)*limit + 1
+	}
+	if m.HasPrevPage {
+		m.PrevPage = page - 1
+	}
+	if m.HasNextPage {
+		m.NextPage = page + 1
+	}
+	return m
+}

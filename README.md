@@ -1,100 +1,105 @@
 # gox
 
-gox creates Go HTTP services with explicit composition-root wiring inspired by
-the member-users project structure.
+gox creates Go HTTP services and adds features to them with every layer and all of their wiring. It is a code generator, not a framework: everything it writes is ordinary Go that belongs to you, and nothing it generates imports gox.
 
-## Create A Project
+> **Status.** 0.4 completes the v1.0 scope: the hexagonal layout with chi or the standard library router, five databases (in-memory, Postgres, MySQL, SQLite, MongoDB) with migrations and repository tests against real databases, and `sync`, `check`, `doctor` and `templates`. Redis, Kafka, S3, jobs, OpenTelemetry, gRPC and external API clients follow in 1.x. The design is in [docs/plan.md](docs/plan.md), the decisions behind it in [docs/adr/](docs/adr/), and the error and response contract in [docs/errors-and-response.md](docs/errors-and-response.md).
 
-Run the command without a project name or module path to choose the HTTP router,
-persistence driver, optional infrastructure, and Git setup in the terminal:
+## Install
 
-\`\`\`sh
-gox new
-\`\`\`
+```sh
+go install github.com/esubalew-Sintie/gox/cmd/gox@latest
+```
 
-It also supports unattended use:
+## Create a project
 
-\`\`\`sh
-gox new members --module example.com/members --layout layered-rest --http chi --db postgres --with redis,kafka
-gox new members --module example.com/members --layout feature-first --http gin --db mongo
-\`\`\`
+```sh
+gox new fleet-service --module github.com/acme/fleet-service --db postgres
+cd fleet-service
+docker compose up -d postgres
+make run        # applies the migrations, listens on :8080; GET /healthz and /readyz
+```
 
-Supported layouts:
+`--db` is one of `memory` (default), `postgres`, `mysql`, `sqlite`, `mongo`. SQL databases get `migrations/` with golang-migrate pairs embedded in the binary, applied on start-up and by `make migrate-up`, `migrate-down` and `migrate-version`. `--http` is `chi` (default) or `stdlib` for `net/http.ServeMux` with method patterns.
 
-- \`layered-rest\` (default): central persistence, module, and HTTP-handler
-  contracts plus per-resource implementations.
-- \`feature-first\`: a self-contained feature package.
+`new` writes the whole tree, runs `go mod tidy`, and verifies it with `go build` and `go vet` before it keeps anything. The module path defaults to the name when `--module` is not given.
 
-Supported HTTP routers: \`net/http\` (default), \`chi\`, and \`gin\`.
+## Add a feature
 
-## Database Persistence
+```sh
+gox gen feature fleet name:string capacity:int opened_at:time:null
+make test
+```
 
-Choose one primary persistence driver with \`--db\`:
+One command writes the entity with its invariants, the service, the repository for the project's database with its migration, the HTTP handler with its DTOs and validation, the in-memory store, tests for the service, the handler and the repository, the feature's errors in the catalogue, its interfaces, and the regenerated composition root. The feature is mounted under `/api/v1/fleets` with create, get, list, update and delete. Repository tests run against a real database through testcontainers and skip under `go test -short`; `Update` is a locked read-modify-write transaction on SQL databases and an optimistic replace on MongoDB.
 
-- \`memory\` (default): an in-process repository for development and tests.
-- \`postgres\`: repositories use \`pgxpool\` and perform SQL CRUD.
-- \`mongo\`: repositories use MongoDB collections and perform document CRUD.
+Fields are `name:type`. Types: `string`, `text`, `int`, `int64`, `float64`, `bool`, `time`, `uuid`. A trailing `?` or `:null` makes a field nullable; `:null` is the form to use in zsh, which treats an unquoted `?` as a glob. `id`, `created_at` and `updated_at` are generated on every entity.
 
-The choice is stored as \`storage.driver\` in \`.gox.yaml\`. New resources keep
-the same database-independent persistence interface; only their repository
-implementation changes. Generated \`initiator/persistence.go\` selects and wires
-the corresponding constructor.
+```sh
+gox destroy feature fleet        # removes everything gen feature wrote, unchanged files only
+gox gen migration add_fleet_index # an empty up/down pair with the next version number
+```
 
-Database lifecycle is owned by \`initiator/dependencies.go\`. It opens, pings,
-exposes, and closes the selected database connection. Generated \`.env.example\`
-contains the required settings:
+## Change a constructor, keep the wiring
 
-- PostgreSQL: \`DATABASE_URL\`
-- MongoDB: \`MONGO_URI\`, optionally \`MONGO_DATABASE\`
+The signature of a `New` is its contract with the composition root. Give the fleet service a configuration dependency:
 
-Only the selected database driver's Go dependency is included in \`go.mod\`.
-Switching a database after resources are generated is intentionally not
-automatic, because it changes real storage semantics and needs a migration.
+```go
+func New(repo storage.FleetRepository, server config.ServerConfig, log *slog.Logger) *Service
+```
 
-## Generate A Resource
+Update the tests that call it, then run `gox sync`. gox type-checks the project, picks each argument by type from what the `Init` function has in scope, and regenerates the `app` files:
 
-\`\`\`sh
-gox g resource account
-gox g module survey --dry-run
-gox remove resource account
-\`\`\`
+```go
+Fleet: fleetsvc.New(s.Fleet, cfg.Server, log),
+```
 
-Layered REST resource generation appends contracts to:
+A parameter with no provider, or with more than one, is reported with the candidates. `gen feature` and `destroy feature` run the same resolution, so adding a feature never undoes your wiring.
 
-\`\`\`text
-internal/storage/persistence/persistence.go
-internal/module/module.go
-internal/handler/rest/handler.go
-\`\`\`
+```sh
+gox check            # exit 1 when the composition root or a generated declaration drifted; for CI
+gox doctor           # toolchain, gox.yaml, manifest, overrides, wiring, build and vet
+gox templates list   # every template; eject <id> copies one into .gox/templates, diff shows your changes
+```
 
-The initiator fields use those contracts, while generated concrete types remain
-inside each feature package. This makes replacement and mocking straightforward.
+## How it keeps your code safe
 
-## Generated Constants
+Every file gox writes is recorded in `.gox/manifest.json` with its ownership class and a hash:
 
-\`\`\`text
-internal/constant/
-  constants.go
-  errors/errors.go
-  entities/<entity>/<entity>.go
-  dto/<entity>.go
-  response/model.go
-  response/response.go
-\`\`\`
+| Class | Meaning |
+|---|---|
+| `once` | written one time, then yours; never rewritten |
+| `tool` | regenerated on every run under a `// Code generated by gox. DO NOT EDIT.` header; an edited tool file stops the command until you pass `--force` or `--adopt` |
+| `codemod` | yours, but gox appends and removes its own declarations in exactly seven files: the interface files, `internal/domain/errors.go` and `internal/config/config.go` |
 
-Handlers return the shared \`response.Model\` envelope for successful and error
-responses. The error package centralizes HTTP status and error-type metadata.
+Every mutating command plans first, prints what it will do, writes through temporary files, verifies with `go build` and `go vet`, and restores every file when verification fails. `--dry-run` prints the plan and the diffs without writing. `destroy` deletes only files whose content is unchanged and lists the rest.
 
-## Runtime Behavior
+Global flags: `--dry-run`, `--yes`, `--force`, `--adopt`, `--allow-dirty`, `--no-interactive`, `--verbose`, `--no-color`, `-C <dir>`. Templates ejected into `.gox/templates/` take precedence over the embedded ones.
 
-Generated services read \`PORT\` (default \`8080\`), expose \`/healthz\` and
-\`/readyz\`, and shut down gracefully on \`SIGINT\` or \`SIGTERM\`. The
-\`net/http\` and Chi variants include request logging; Gin uses its standard
-logger and recovery middleware.
+## What a generated project looks like
 
-## Extending Layouts
+```
+app/                      composition root: app.go knows the order, one Init* file per concern
+externalapi/              external API clients, interfaces in externalapi.go
+internal/
+  config/config.go        Config struct and loader (config.yaml, then APP_ environment)
+  domain/                 entities per feature; errors.go holds every error with ErrorMap and ErrorTypeMap
+  service/                service.go interfaces; one implementation package per feature
+  handler/http/           handler.go interfaces; middleware/, request/, response/; one package per feature
+  storage/                repository.go and cache.go interfaces; <db>/ with pool, tx, migrate, errors and one folder per feature
+  testutil/dbtest/        starts the real database for repository tests
+  testutil/memstore/      in-memory stores, one per feature
+migrations/               golang-migrate pairs, embedded (SQL databases)
+config.yaml, .env.example, Makefile, Dockerfile, docker-compose.yml, .golangci.yml, AGENTS.md
+gox.yaml                  what gox generates from
+.gox/manifest.json        what gox wrote
+```
 
-Add templates under \`initiator/templates/<layout>/\`, then define generated
-files and composition-root wiring in \`internal/generator/layout.go\`. Every
-layout must keep its registry markers so resource generation remains
-deterministic.
+The generated `AGENTS.md` explains the layout, the ownership rule, the startup flow and the request flow to anyone, human or agent, who works on the service.
+
+## Developing gox
+
+```sh
+make all        # tidy check, build, vet, lint, race tests
+```
+
+The end-to-end test generates one project per database and runs its tests; it needs network for `go mod tidy` and Docker for the Postgres, MySQL and Mongo containers. Without Docker those repository tests are skipped. `go test -short` skips the whole end-to-end test.

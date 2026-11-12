@@ -1,0 +1,37 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+
+	"{{ .Module }}/internal/config"
+	"{{ .Module }}/internal/storage/mysql"
+	"{{ .Module }}/migrations"
+)
+
+// InitMySQL opens the database, pings it, and applies the embedded
+// migrations when cfg.AutoMigrate is set. Pool sizes are tuned here.
+func InitMySQL(ctx context.Context, cfg config.MySQLConfig, log *slog.Logger) (*sql.DB, error) {
+	db, err := mysql.Open(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AutoMigrate {
+		if err := mysql.Migrate(ctx, cfg, migrations.FS); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		log.Info("mysql migrations applied")
+	}
+	log.Info("mysql connected")
+	return db, nil
+}
+
+// CloseMySQL closes the database.
+func CloseMySQL(db *sql.DB, log *slog.Logger) {
+	if db != nil {
+		_ = db.Close()
+		log.Info("mysql closed")
+	}
+}

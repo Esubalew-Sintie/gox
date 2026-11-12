@@ -96,7 +96,6 @@ func splitWords(value string) []string {
 	return words
 }
 
-
 func isValidWord(word string) bool {
 	for _, r := range word {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {

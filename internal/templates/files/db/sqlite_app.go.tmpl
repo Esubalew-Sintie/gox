@@ -1,0 +1,37 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+
+	"{{ .Module }}/internal/config"
+	"{{ .Module }}/internal/storage/sqlite"
+	"{{ .Module }}/migrations"
+)
+
+// InitSQLite opens the database, pings it, and applies the embedded
+// migrations when cfg.AutoMigrate is set. Pool sizes are tuned here.
+func InitSQLite(ctx context.Context, cfg config.SQLiteConfig, log *slog.Logger) (*sql.DB, error) {
+	db, err := sqlite.Open(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AutoMigrate {
+		if err := sqlite.Migrate(ctx, cfg, migrations.FS); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		log.Info("sqlite migrations applied")
+	}
+	log.Info("sqlite connected")
+	return db, nil
+}
+
+// CloseSQLite closes the database.
+func CloseSQLite(db *sql.DB, log *slog.Logger) {
+	if db != nil {
+		_ = db.Close()
+		log.Info("sqlite closed")
+	}
+}

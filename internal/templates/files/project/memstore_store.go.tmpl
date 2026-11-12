@@ -1,0 +1,22 @@
+// Package memstore holds thread-safe in-memory implementations of the
+// storage interfaces, one file per feature. They are the repositories of a
+// project generated with db: memory and the fakes service tests use with any
+// database.
+package memstore
+
+import "{{ .Module }}/internal/domain"
+
+// NewID returns a fresh entity id; it is domain.NewID.
+func NewID() string { return domain.NewID() }
+
+// Slice returns the requested page of items and the total count.
+func Slice[T any](items []T, page domain.PageRequest) ([]T, int64) {
+	page = page.Normalized()
+	total := int64(len(items))
+	start := page.Offset()
+	if start >= len(items) {
+		return []T{}, total
+	}
+	end := min(start+page.Limit, len(items))
+	return items[start:end], total
+}
