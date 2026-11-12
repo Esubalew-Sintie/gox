@@ -83,7 +83,7 @@ func TestLayoutPaths(t *testing.T) {
 	name, _ := naming.Parse("fleet")
 	f := model.Feature{Name: *name}
 	checks := map[string]string{
-		l.FeatureDomainDir(f):                 "internal/domain/fleet",
+		l.FeatureEntityFile(f):                "internal/domain/entity/fleet.go",
 		l.FeatureServiceDir(f):                "internal/service/fleet",
 		l.FeatureHandlerDir(f):                "internal/handler/http/fleet",
 		l.FeatureRepositoryDir(f, "postgres"): "internal/storage/postgres/fleet",
@@ -105,7 +105,7 @@ func TestLayoutPaths(t *testing.T) {
 	if up != "migrations/000002_create_fleets.up.sql" || down != "migrations/000002_create_fleets.down.sql" {
 		t.Fatalf("migration: %s %s", up, down)
 	}
-	if model.ImportPath("github.com/acme/fleet", l.FeatureDomainDir(f)) != "github.com/acme/fleet/internal/domain/fleet" {
+	if model.ImportPath("github.com/acme/fleet", l.EntityDir()) != "github.com/acme/fleet/internal/domain/entity" {
 		t.Fatal("import path")
 	}
 	if model.FeatureOwner(f) != "feature:fleet" {

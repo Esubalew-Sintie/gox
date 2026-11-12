@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"{{ .Module }}/internal/domain"
-	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/domain/dto"
+	"{{ .Module }}/internal/domain/entity"
 	{{ .Name.Snake }}repo "{{ .Module }}/internal/storage/{{ .DBPackage }}/{{ .Name.Snake }}"
 	"{{ .Module }}/internal/testutil"
 	"{{ .Module }}/internal/testutil/dbtest"
@@ -59,8 +60,8 @@ func newRepo(t *testing.T) *{{ .Name.Snake }}repo.Repository {
 }
 {{- end }}
 
-func validInput() {{ .Name.Snake }}.CreateInput {
-	return {{ .Name.Snake }}.CreateInput{
+func validRequest() dto.Create{{ .Name.Pascal }}Request {
+	return dto.Create{{ .Name.Pascal }}Request{
 {{- range .Fields }}
 {{- if not .Nullable }}
 		{{ .Name.Pascal }}: {{ .Sample }},
@@ -73,10 +74,7 @@ func TestCreateGetListUpdateDelete(t *testing.T) {
 	ctx := testutil.Context(t)
 	repo := newRepo(t)
 
-	e, err := {{ .Name.Snake }}.New(validInput())
-	if err != nil {
-		t.Fatal(err)
-	}
+	e := entity.New{{ .Name.Pascal }}(validRequest())
 	if err := repo.Create(ctx, e); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -95,11 +93,11 @@ func TestCreateGetListUpdateDelete(t *testing.T) {
 	}
 
 	before := time.Now().UTC().Add(-time.Second)
-	updated, err := repo.Update(ctx, e.ID, func(x *{{ .Name.Snake }}.{{ .Name.Pascal }}) error { return x.Update(validInput()) })
+	updated, err := repo.Update(ctx, e.ID, func(x *entity.{{ .Name.Pascal }}) error { x.Update(validRequest()); return nil })
 	if err != nil || updated.ID != e.ID || updated.UpdatedAt.Before(before) {
 		t.Fatalf("update: %+v %v", updated, err)
 	}
-	if _, err := repo.Update(ctx, "missing", func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error { return nil }); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
+	if _, err := repo.Update(ctx, "missing", func(*entity.{{ .Name.Pascal }}) error { return nil }); !errors.Is(err, domain.Err{{ .Name.Pascal }}NotFound) {
 		t.Fatalf("update missing: %v", err)
 	}
 
@@ -118,11 +116,7 @@ func TestListPages(t *testing.T) {
 	ctx := testutil.Context(t)
 	repo := newRepo(t)
 	for range 3 {
-		e, err := {{ .Name.Snake }}.New(validInput())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := repo.Create(ctx, e); err != nil {
+		if err := repo.Create(ctx, entity.New{{ .Name.Pascal }}(validRequest())); err != nil {
 			t.Fatal(err)
 		}
 	}

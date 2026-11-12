@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"{{ .Module }}/internal/domain"
-	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/domain/entity"
 	"{{ .Module }}/internal/storage"
 )
 
@@ -14,7 +14,7 @@ import (
 // copies, so callers never share memory with it.
 type {{ .Name.Pascal }}Store struct {
 	mu    sync.RWMutex
-	items map[string]{{ .Name.Snake }}.{{ .Name.Pascal }}
+	items map[string]entity.{{ .Name.Pascal }}
 	order []string
 }
 
@@ -22,11 +22,11 @@ var _ storage.{{ .Name.Pascal }}Repository = (*{{ .Name.Pascal }}Store)(nil)
 
 // New{{ .Name.Pascal }}Store returns an empty store.
 func New{{ .Name.Pascal }}Store() *{{ .Name.Pascal }}Store {
-	return &{{ .Name.Pascal }}Store{items: map[string]{{ .Name.Snake }}.{{ .Name.Pascal }}{}}
+	return &{{ .Name.Pascal }}Store{items: map[string]entity.{{ .Name.Pascal }}{}}
 }
 
 // Create stores a copy of e, assigning an id when it has none.
-func (s *{{ .Name.Pascal }}Store) Create(_ context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+func (s *{{ .Name.Pascal }}Store) Create(_ context.Context, e *entity.{{ .Name.Pascal }}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e.ID == "" {
@@ -41,7 +41,7 @@ func (s *{{ .Name.Pascal }}Store) Create(_ context.Context, e *{{ .Name.Snake }}
 }
 
 // Get returns a copy of the entity.
-func (s *{{ .Name.Pascal }}Store) Get(_ context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+func (s *{{ .Name.Pascal }}Store) Get(_ context.Context, id string) (*entity.{{ .Name.Pascal }}, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	e, ok := s.items[id]
@@ -52,10 +52,10 @@ func (s *{{ .Name.Pascal }}Store) Get(_ context.Context, id string) (*{{ .Name.S
 }
 
 // List returns one page in insertion order and the total count.
-func (s *{{ .Name.Pascal }}Store) List(_ context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+func (s *{{ .Name.Pascal }}Store) List(_ context.Context, page domain.PageRequest) ([]*entity.{{ .Name.Pascal }}, int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	all := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, len(s.order))
+	all := make([]*entity.{{ .Name.Pascal }}, 0, len(s.order))
 	for _, id := range s.order {
 		e := s.items[id]
 		all = append(all, &e)
@@ -65,7 +65,7 @@ func (s *{{ .Name.Pascal }}Store) List(_ context.Context, page domain.PageReques
 }
 
 // Update applies fn to a copy under the lock and stores the result.
-func (s *{{ .Name.Pascal }}Store) Update(_ context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+func (s *{{ .Name.Pascal }}Store) Update(_ context.Context, id string, fn func(*entity.{{ .Name.Pascal }}) error) (*entity.{{ .Name.Pascal }}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.items[id]

@@ -8,7 +8,7 @@ import (
 	"log/slog"
 
 	"{{ .Module }}/internal/domain"
-	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/domain/entity"
 	"{{ .Module }}/internal/storage"
 	"{{ .Module }}/internal/storage/{{ .DBPackage }}"
 )
@@ -42,7 +42,7 @@ type scanner interface {
 }
 
 // Create inserts e, assigning an id when it has none.
-func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+func (r *Repository) Create(ctx context.Context, e *entity.{{ .Name.Pascal }}) error {
 	if e.ID == "" {
 		e.ID = domain.NewID()
 	}
@@ -51,12 +51,12 @@ func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.P
 }
 
 // Get returns one {{ .Title | lower }} by id.
-func (r *Repository) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+func (r *Repository) Get(ctx context.Context, id string) (*entity.{{ .Name.Pascal }}, error) {
 	return scan(r.db.QueryRowContext(ctx, selectSQL, id))
 }
 
 // List returns one page in creation order and the total count.
-func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*entity.{{ .Name.Pascal }}, int64, error) {
 	page = page.Normalized()
 	var total int64
 	if err := r.db.QueryRowContext(ctx, countSQL).Scan(&total); err != nil {
@@ -67,7 +67,7 @@ func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .
 		return nil, 0, translate(err)
 	}
 	defer func() { _ = rows.Close() }()
-	items := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, page.Limit)
+	items := make([]*entity.{{ .Name.Pascal }}, 0, page.Limit)
 	for rows.Next() {
 		e, err := scan(rows)
 		if err != nil {
@@ -82,8 +82,8 @@ func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .
 }
 
 // Update reads the row inside a transaction, applies fn and writes the result.
-func (r *Repository) Update(ctx context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
-	var out *{{ .Name.Snake }}.{{ .Name.Pascal }}
+func (r *Repository) Update(ctx context.Context, id string, fn func(*entity.{{ .Name.Pascal }}) error) (*entity.{{ .Name.Pascal }}, error) {
+	var out *entity.{{ .Name.Pascal }}
 	err := {{ .DBPackage }}.WithTx(ctx, r.db, func(tx *sql.Tx) error {
 		e, err := scan(tx.QueryRowContext(ctx, selectForUpdateSQL, id))
 		if err != nil {
@@ -116,8 +116,8 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func scan(row scanner) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
-	var e {{ .Name.Snake }}.{{ .Name.Pascal }}
+func scan(row scanner) (*entity.{{ .Name.Pascal }}, error) {
+	var e entity.{{ .Name.Pascal }}
 	if err := row.Scan({{ .ScanArgs }}); err != nil {
 		return nil, translate(err)
 	}

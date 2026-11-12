@@ -8,6 +8,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/domain/dto"
+	"{{ .Module }}/internal/domain/entity"
 	"{{ .Module }}/internal/handler"
 	"{{ .Module }}/internal/handler/http/request"
 	"{{ .Module }}/internal/handler/http/response"
@@ -61,17 +63,17 @@ func pathID(r *http.Request) string { return r.PathValue("id") }
 
 // Create handles POST {{ .Route }}.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	var req createRequest
+	var req dto.Create{{ .Name.Pascal }}Request
 	if err := request.Decode(r, &req); err != nil {
 		response.Error(w, r, err)
 		return
 	}
-	out, err := h.service.Create(r.Context(), req.toInput())
+	out, err := h.service.Create(r.Context(), req)
 	if err != nil {
 		response.Error(w, r, err)
 		return
 	}
-	response.Success(w, r, http.StatusCreated, "{{ .Title }} created successfully", toResponse(out))
+	response.Success(w, r, http.StatusCreated, "{{ .Title }} created successfully", out.Response())
 }
 
 // Get handles GET {{ .Route }}/{id}.
@@ -81,7 +83,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, r, err)
 		return
 	}
-	response.Success(w, r, http.StatusOK, "{{ .Title }} fetched successfully", toResponse(out))
+	response.Success(w, r, http.StatusOK, "{{ .Title }} fetched successfully", out.Response())
 }
 
 // List handles GET {{ .Route }}?page=&limit=.
@@ -92,23 +94,23 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, r, err)
 		return
 	}
-	response.Success(w, r, http.StatusOK, "{{ .PluralTitle }} fetched successfully", toResponses(items),
+	response.Success(w, r, http.StatusOK, "{{ .PluralTitle }} fetched successfully", entity.{{ .Name.Pascal }}Responses(items),
 		response.WithMeta(domain.NewPageMeta(total, page)))
 }
 
 // Update handles PUT {{ .Route }}/{id}.
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	var req updateRequest
+	var req dto.Update{{ .Name.Pascal }}Request
 	if err := request.Decode(r, &req); err != nil {
 		response.Error(w, r, err)
 		return
 	}
-	out, err := h.service.Update(r.Context(), pathID(r), req.toInput())
+	out, err := h.service.Update(r.Context(), pathID(r), req)
 	if err != nil {
 		response.Error(w, r, err)
 		return
 	}
-	response.Success(w, r, http.StatusOK, "{{ .Title }} updated successfully", toResponse(out))
+	response.Success(w, r, http.StatusOK, "{{ .Title }} updated successfully", out.Response())
 }
 
 // Delete handles DELETE {{ .Route }}/{id}.

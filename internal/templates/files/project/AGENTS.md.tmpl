@@ -9,7 +9,8 @@ app/                     composition root: one file per concern, Init* functions
 externalapi/             external APIs this service calls; one folder per provider, interfaces in externalapi.go
 internal/
   config/config.go       Config struct; gox appends capability blocks, your fields stay
-  domain/                entities per feature; errors.go holds every error with ErrorMap and ErrorTypeMap
+  domain/entity/         one file per entity, plain structs; domain/dto/ request and response types, one file per feature
+  domain/errors.go       every error with ErrorMap and ErrorTypeMap; page.go, id.go
   service/               service.go interfaces; one folder per feature
   handler/http/          handler.go interfaces; middleware/, request/, response/; one folder per feature
   storage/               repository.go, cache.go, publisher.go interfaces; one folder per adapter
@@ -38,7 +39,7 @@ A constructor's signature is its contract with the composition root. Add a param
 
 ## Request flow
 
-HTTP request → the router ({{ .HTTP }}) and `internal/handler/http/middleware` → `internal/handler/http/<feature>` (`request.Decode`, which enforces a 1 MiB limit, rejects unknown fields and runs the DTO's `Validate` method) → `internal/service/<feature>` (calls the entity's `New` for invariants, then the repository through `storage.<Feature>Repository`) → `internal/storage/<db>/<feature>` (SQL; errors through `<db>.Translate`) → database. Back up the same way; the handler ends in `response.Success` or `response.Error`. `app` is not on this path, and the interface files are compile-time contracts, not hops.
+HTTP request → the router ({{ .HTTP }}) and `internal/handler/http/middleware` → `internal/handler/http/<feature>` (`request.Decode`, which enforces a 1 MiB limit, rejects unknown fields and runs the DTO's `Validate` method) → `internal/service/<feature>` (takes the request as is, builds the entity with `entity.New<Feature>(req)`, applies any business rule, then calls the repository through `storage.<Feature>Repository`) → `internal/storage/<db>/<feature>` (SQL; errors through `<db>.Translate`) → database. Back up the same way; the handler ends in `response.Success` or `response.Error`. `app` is not on this path, and the interface files are compile-time contracts, not hops.
 
 ## Errors
 
@@ -48,9 +49,9 @@ Every error is an `errors.New` sentinel in `internal/domain/errors.go` with one 
 
 | Task | Command |
 |---|---|
-| Add a feature with every layer and its wiring | `gox gen feature <Name> name:string capacity:int opened_at:time?` |
+| Add a feature with every layer and its wiring | `gox gen feature <Name> name:string capacity:int opened_at:time:null` |
 | Remove a feature | `gox destroy feature <Name>` |
-| Add infrastructure | `gox add redis` / `gox add kafka` / `gox remove kafka` |
+| Add an empty migration pair | `gox gen migration <name>` |
 | See what a command would do | append `--dry-run` |
 | Check generated files are current | `gox check` (CI runs it; exit 1 on drift) |
 | Re-wire after changing a constructor | `gox sync` (gen and destroy run it too) |

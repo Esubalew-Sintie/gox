@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -12,13 +13,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/esubalew-Sintie/gox/internal/cli"
 )
 
+// gox runs a command without prompts; goxIn answers them from input.
 func gox(t *testing.T, args ...string) string {
 	t.Helper()
 	root := cli.NewRoot()
 	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(append(args, "--no-interactive"))
+	if err := root.Execute(); err != nil {
+		t.Fatalf("gox %s: %v\n%s", strings.Join(args, " "), err, out.String())
+	}
+	return out.String()
+}
+
+func goxIn(t *testing.T, input string, args ...string) string {
+	t.Helper()
+	root := cli.NewRoot()
+	var out bytes.Buffer
+	root.SetIn(strings.NewReader(input))
 	root.SetOut(&out)
 	root.SetErr(&out)
 	root.SetArgs(args)
@@ -34,7 +52,7 @@ func goxFails(t *testing.T, args ...string) string {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	root.SetArgs(args)
+	root.SetArgs(append(args, "--no-interactive"))
 	err := root.Execute()
 	if err == nil {
 		t.Fatalf("gox %s: expected an error\n%s", strings.Join(args, " "), out.String())
@@ -140,7 +158,7 @@ func runEndToEnd(t *testing.T, database, router string, docker bool) {
 		t.Fatalf("dry run changed the tree:\n%s", d)
 	}
 	out = gox(t, feature...)
-	for _, want := range []string{"create  internal/domain/fleet/fleet.go", "modify  internal/domain/errors.go", "modify  internal/storage/repository.go", "regen  app/routes.go"} {
+	for _, want := range []string{"create  internal/domain/entity/fleet.go", "create  internal/domain/dto/fleet.go", "modify  internal/domain/errors.go", "modify  internal/storage/repository.go", "regen  app/routes.go"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("gen output missing %q:\n%s", want, out)
 		}
@@ -251,13 +269,23 @@ func checkSyncRewires(t *testing.T, root string) {
 	gox(t, "doctor", "-C", root)
 
 	// A second feature regenerates the root through the same resolution.
-	gox(t, "gen", "feature", "driver", "name:string", "-C", root)
+	// The name is given, the fields are answered one per line.
+	driver := goxIn(t, "name:string\nlicense:string:null\n\n", "gen", "feature", "driver", "-C", root)
+	if !strings.Contains(driver, "feature driver: name:string license:string:null") || !strings.Contains(driver, "create  internal/domain/entity/driver.go") {
+		t.Fatalf("interactive gen feature:\n%s", driver)
+	}
 	appService, _ = os.ReadFile(filepath.Join(root, "app", "service.go"))
 	if !strings.Contains(string(appService), "fleetsvc.New(s.Fleet, cfg.Server, log)") || !strings.Contains(string(appService), "driversvc.New(s.Driver, log)") {
 		t.Fatalf("gen feature lost the resolved wiring:\n%s", appService)
 	}
 	goRun(t, root, "build", "./...")
-	gox(t, "destroy", "feature", "driver", "-C", root, "--yes")
+	if aborted := goxIn(t, "n\n", "destroy", "feature", "driver", "-C", root); !strings.Contains(aborted, "aborted") {
+		t.Fatalf("destroy answered no:\n%s", aborted)
+	}
+	if _, err := os.Stat(filepath.Join(root, "internal", "domain", "entity", "driver.go")); err != nil {
+		t.Fatalf("destroy answered no still removed files: %v", err)
+	}
+	goxIn(t, "y\n", "destroy", "feature", "driver", "-C", root)
 
 	// Put the files back so the destroy round trip below compares equal.
 	for rel, src := range originals {
@@ -283,4 +311,12 @@ func checkSyncRewires(t *testing.T, root string) {
 	if err := os.RemoveAll(filepath.Join(root, ".gox", "templates")); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func newRootWithInput(input string) *cobra.Command {
+	root := cli.NewRoot()
+	root.SetIn(strings.NewReader(input))
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	return root
 }

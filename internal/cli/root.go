@@ -7,15 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/esubalew-Sintie/gox/internal/apply"
 	"github.com/esubalew-Sintie/gox/internal/plan"
+	"github.com/esubalew-Sintie/gox/internal/prompt"
 	"github.com/esubalew-Sintie/gox/internal/transcript"
 	"github.com/esubalew-Sintie/gox/internal/version"
 )
@@ -51,7 +50,7 @@ func NewRoot() *cobra.Command {
 	pf.BoolVar(&g.force, "force", false, "overwrite edited tool files and delete edited files")
 	pf.BoolVar(&g.adopt, "adopt", false, "keep edited tool files as yours instead of overwriting them")
 	pf.BoolVar(&g.allowDirty, "allow-dirty", false, "run with uncommitted changes in git")
-	pf.BoolVar(&g.noInteractive, "no-interactive", false, "never prompt; fail when a confirmation is needed")
+	pf.BoolVar(&g.noInteractive, "no-interactive", false, "never ask; take defaults and fail when a confirmation is needed")
 	pf.BoolVarP(&g.verbose, "verbose", "v", false, "print a diff for every change")
 	pf.BoolVar(&g.noColor, "no-color", false, "plain output")
 
@@ -67,6 +66,16 @@ func Execute() int {
 		return 1
 	}
 	return 0
+}
+
+// prompter asks on the command's streams: a form on a terminal, plain lines
+// for a test buffer or with ACCESSIBLE set, nothing with --no-interactive or
+// when the input is not a terminal.
+func (g *globalFlags) prompter(cmd *cobra.Command) *prompt.Prompter {
+	if g.noInteractive {
+		return prompt.WithMode(prompt.None, cmd.InOrStdin(), cmd.OutOrStdout())
+	}
+	return prompt.New(cmd.InOrStdin(), cmd.OutOrStdout())
 }
 
 func (g *globalFlags) writer(cmd *cobra.Command) *transcript.Writer {
@@ -97,8 +106,8 @@ func (g *globalFlags) run(cmd *cobra.Command, root string, p *plan.Plan, opts ap
 		if g.noInteractive {
 			return errors.New("confirmation needed; pass --yes")
 		}
-		ok, err := ask(cmd.InOrStdin(), cmd.OutOrStdout(), confirm)
-		if err != nil {
+		ok, err := g.prompter(cmd).Confirm(confirm, false)
+		if err != nil && !errors.Is(err, prompt.ErrAborted) {
 			return err
 		}
 		if !ok {
@@ -143,14 +152,4 @@ func printPlan(out *transcript.Writer, p *plan.Plan, withDiff bool) {
 			out.Raw(p.Diff(s))
 		}
 	}
-}
-
-func ask(in io.Reader, out io.Writer, question string) (bool, error) {
-	fmt.Fprintf(out, "%s [y/N] ", question)
-	var answer string
-	if _, err := fmt.Fscanln(in, &answer); err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "unexpected newline") {
-		return false, fmt.Errorf("read answer: %w", err)
-	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	return answer == "y" || answer == "yes", nil
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"{{ .Module }}/internal/domain"
-	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/domain/entity"
 	"{{ .Module }}/internal/storage"
 	"{{ .Module }}/internal/storage/postgres"
 )
@@ -39,7 +39,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger) *Repository {
 }
 
 // Create inserts e, assigning an id when it has none.
-func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+func (r *Repository) Create(ctx context.Context, e *entity.{{ .Name.Pascal }}) error {
 	if e.ID == "" {
 		e.ID = domain.NewID()
 	}
@@ -48,12 +48,12 @@ func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.P
 }
 
 // Get returns one {{ .Title | lower }} by id.
-func (r *Repository) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+func (r *Repository) Get(ctx context.Context, id string) (*entity.{{ .Name.Pascal }}, error) {
 	return scan(r.pool.QueryRow(ctx, selectSQL, id))
 }
 
 // List returns one page in creation order and the total count.
-func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*entity.{{ .Name.Pascal }}, int64, error) {
 	page = page.Normalized()
 	var total int64
 	if err := r.pool.QueryRow(ctx, countSQL).Scan(&total); err != nil {
@@ -64,7 +64,7 @@ func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .
 		return nil, 0, translate(err)
 	}
 	defer rows.Close()
-	items := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, page.Limit)
+	items := make([]*entity.{{ .Name.Pascal }}, 0, page.Limit)
 	for rows.Next() {
 		e, err := scan(rows)
 		if err != nil {
@@ -79,8 +79,8 @@ func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .
 }
 
 // Update locks the row, applies fn and writes the result in one transaction.
-func (r *Repository) Update(ctx context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
-	var out *{{ .Name.Snake }}.{{ .Name.Pascal }}
+func (r *Repository) Update(ctx context.Context, id string, fn func(*entity.{{ .Name.Pascal }}) error) (*entity.{{ .Name.Pascal }}, error) {
+	var out *entity.{{ .Name.Pascal }}
 	err := postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		e, err := scan(tx.QueryRow(ctx, selectForUpdateSQL, id))
 		if err != nil {
@@ -113,8 +113,8 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func scan(row pgx.Row) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
-	var e {{ .Name.Snake }}.{{ .Name.Pascal }}
+func scan(row pgx.Row) (*entity.{{ .Name.Pascal }}, error) {
+	var e entity.{{ .Name.Pascal }}
 	if err := row.Scan({{ .ScanArgs }}); err != nil {
 		return nil, translate(err)
 	}

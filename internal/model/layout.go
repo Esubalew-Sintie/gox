@@ -60,6 +60,11 @@ func (l Layout) ExternalAPIInterfaces() string { return path.Join(ExternalAPIDir
 func (l Layout) ErrorsFile() string            { return path.Join(l.DomainDir, "errors.go") }
 func (l Layout) PageFile() string              { return path.Join(l.DomainDir, "page.go") }
 
+// EntityDir holds every entity, one file each, in package entity; DTODir
+// holds the request and response types, one file per feature, in package dto.
+func (l Layout) EntityDir() string { return path.Join(l.DomainDir, "entity") }
+func (l Layout) DTODir() string    { return path.Join(l.DomainDir, "dto") }
+
 // HTTP support packages.
 
 func (l Layout) HTTPDir() string       { return path.Join(l.HandlerDir, "http") }
@@ -73,7 +78,10 @@ func (l Layout) DBDir(db string) string { return path.Join(l.StorageDir, db) }
 
 // Per-feature directories and files.
 
-func (l Layout) FeatureDomainDir(f Feature) string  { return path.Join(l.DomainDir, f.Name.Snake) }
+func (l Layout) FeatureEntityFile(f Feature) string {
+	return path.Join(l.EntityDir(), f.Name.Snake+".go")
+}
+func (l Layout) FeatureDTOFile(f Feature) string    { return path.Join(l.DTODir(), f.Name.Snake+".go") }
 func (l Layout) FeatureServiceDir(f Feature) string { return path.Join(l.ServiceDir, f.Name.Snake) }
 func (l Layout) FeatureHandlerDir(f Feature) string { return path.Join(l.HTTPDir(), f.Name.Snake) }
 func (l Layout) FeatureRepositoryDir(f Feature, db string) string {

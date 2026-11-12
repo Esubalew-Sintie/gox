@@ -12,8 +12,8 @@ The current gox has `new`, `g resource`, `g module`, `add`, `remove` and `doctor
 
 The generation unit is the **feature**. Commands:
 
-- `gox new <name>` with `--db`, `--http`, `--with`, `--module`, `--git`, `--defaults`; prompts only for missing choices.
-- `gox gen feature <Name> [field:type ...]` writes every layer and regenerates the wiring; aliases `g f`, `module`, `resource`. Atomic generators `gen domain|service|repository|handler|cache|publisher|consumer|migration|middleware`.
+- `gox new <name>` with `--db`, `--http`, `--with`, `--module`, `--git`, `--defaults`; prompts only for missing choices (addendum 2026-11-12: prompts are a charmbracelet/huh form behind `internal/prompt`; the name is prompted for too; `--no-interactive` or an input that is not a terminal take the defaults; `ACCESSIBLE=1` asks as plain lines).
+- `gox gen feature <Name> [field:type ...]` writes every layer and regenerates the wiring; aliases `g f`, `module`, `resource` (addendum 2026-11-12: on a terminal the name and the fields are prompted for when missing, one field per line until an empty line). Atomic generators `gen domain|service|repository|handler|cache|publisher|consumer|migration|middleware`.
 - `gox gen client <Name> [--kind http|grpc] [--auth basic|bearer|apikey]` for external API clients.
 - `gox add <capability>` and `gox remove <capability>` for redis, kafka, s3, jobs, otel, grpc, openapi.
 - `gox destroy feature <Name>`, manifest-driven with per-file confirmation.

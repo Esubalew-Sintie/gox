@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"{{ .Module }}/internal/domain"
-	"{{ .Module }}/internal/domain/{{ .Name.Snake }}"
+	"{{ .Module }}/internal/domain/entity"
 	"{{ .Module }}/internal/storage"
 	mongostorage "{{ .Module }}/internal/storage/mongo"
 )
@@ -33,7 +33,7 @@ type document struct {
 	UpdatedAt time.Time `bson:"updated_at"`
 }
 
-func toDocument(e *{{ .Name.Snake }}.{{ .Name.Pascal }}) document {
+func toDocument(e *entity.{{ .Name.Pascal }}) document {
 	return document{
 		ID: e.ID,
 {{- range .Fields }}
@@ -44,8 +44,8 @@ func toDocument(e *{{ .Name.Snake }}.{{ .Name.Pascal }}) document {
 	}
 }
 
-func (d document) entity() *{{ .Name.Snake }}.{{ .Name.Pascal }} {
-	return &{{ .Name.Snake }}.{{ .Name.Pascal }}{
+func (d document) entity() *entity.{{ .Name.Pascal }} {
+	return &entity.{{ .Name.Pascal }}{
 		ID: d.ID,
 {{- range .Fields }}
 		{{ .Name.Pascal }}: d.{{ .Name.Pascal }},
@@ -69,7 +69,7 @@ func New(db *mongo.Database, log *slog.Logger) *Repository {
 }
 
 // Create inserts e, assigning an id when it has none.
-func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.Pascal }}) error {
+func (r *Repository) Create(ctx context.Context, e *entity.{{ .Name.Pascal }}) error {
 	if e.ID == "" {
 		e.ID = domain.NewID()
 	}
@@ -78,7 +78,7 @@ func (r *Repository) Create(ctx context.Context, e *{{ .Name.Snake }}.{{ .Name.P
 }
 
 // Get returns one {{ .Title | lower }} by id.
-func (r *Repository) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+func (r *Repository) Get(ctx context.Context, id string) (*entity.{{ .Name.Pascal }}, error) {
 	var d document
 	if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&d); err != nil {
 		return nil, translate(err)
@@ -87,7 +87,7 @@ func (r *Repository) Get(ctx context.Context, id string) (*{{ .Name.Snake }}.{{ 
 }
 
 // List returns one page in creation order and the total count.
-func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, int64, error) {
+func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*entity.{{ .Name.Pascal }}, int64, error) {
 	page = page.Normalized()
 	total, err := r.coll.CountDocuments(ctx, bson.D{})
 	if err != nil {
@@ -105,7 +105,7 @@ func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .
 	if err := cursor.All(ctx, &docs); err != nil {
 		return nil, 0, translate(err)
 	}
-	items := make([]*{{ .Name.Snake }}.{{ .Name.Pascal }}, 0, len(docs))
+	items := make([]*entity.{{ .Name.Pascal }}, 0, len(docs))
 	for i := range docs {
 		items = append(items, docs[i].entity())
 	}
@@ -115,7 +115,7 @@ func (r *Repository) List(ctx context.Context, page domain.PageRequest) ([]*{{ .
 // Update reads the document, applies fn and replaces it only when nobody
 // else changed it in between, retrying a few times before reporting a
 // concurrent update.
-func (r *Repository) Update(ctx context.Context, id string, fn func(*{{ .Name.Snake }}.{{ .Name.Pascal }}) error) (*{{ .Name.Snake }}.{{ .Name.Pascal }}, error) {
+func (r *Repository) Update(ctx context.Context, id string, fn func(*entity.{{ .Name.Pascal }}) error) (*entity.{{ .Name.Pascal }}, error) {
 	for range updateAttempts {
 		var current document
 		if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&current); err != nil {

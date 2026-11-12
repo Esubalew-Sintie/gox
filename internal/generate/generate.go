@@ -160,11 +160,11 @@ func (g *Generator) featureFiles(f model.Feature, migration int) []fileSpec {
 	l := g.layout
 	once := manifest.ClassOnce
 	files := []fileSpec{
-		{"feature/domain.go.tmpl", path.Join(l.FeatureDomainDir(f), f.Name.Snake+".go"), manifest.ClassOnce},
+		{"feature/entity.go.tmpl", l.FeatureEntityFile(f), manifest.ClassOnce},
+		{"feature/dto.go.tmpl", l.FeatureDTOFile(f), manifest.ClassOnce},
 		{"feature/service.go.tmpl", path.Join(l.FeatureServiceDir(f), "service.go"), manifest.ClassOnce},
 		{"feature/service_test.go.tmpl", path.Join(l.FeatureServiceDir(f), "service_test.go"), manifest.ClassOnce},
 		{"feature/handler.go.tmpl", path.Join(l.FeatureHandlerDir(f), "handler.go"), manifest.ClassOnce},
-		{"feature/dto.go.tmpl", path.Join(l.FeatureHandlerDir(f), "dto.go"), manifest.ClassOnce},
 		{"feature/handler_test.go.tmpl", path.Join(l.FeatureHandlerDir(f), "handler_test.go"), manifest.ClassOnce},
 		{"feature/memstore.go.tmpl", l.FeatureMemstoreFile(f), manifest.ClassOnce},
 	}
@@ -282,7 +282,8 @@ func (g *Generator) featureEdits(fd featureData, remove, force bool) ([]plan.Des
 	l := g.layout
 	pascal := fd.Name.Pascal
 	domainPkg := model.ImportPath(g.project.Module, l.DomainDir)
-	featurePkg := model.ImportPath(g.project.Module, l.FeatureDomainDir(fd.Feature))
+	entityPkg := model.ImportPath(g.project.Module, l.EntityDir())
+	dtoPkg := model.ImportPath(g.project.Module, l.DTODir())
 
 	type edit struct {
 		path    string
@@ -291,8 +292,8 @@ func (g *Generator) featureEdits(fd featureData, remove, force bool) ([]plan.Des
 		imports []string
 	}
 	edits := []edit{
-		{l.RepositoryInterfaces(), []string{pascal + "Repository"}, fd.repositoryInterface(), []string{"context", domainPkg, featurePkg}},
-		{l.ServiceInterfaces(), []string{pascal + "Service"}, fd.serviceInterface(), []string{"context", domainPkg, featurePkg}},
+		{l.RepositoryInterfaces(), []string{pascal + "Repository"}, fd.repositoryInterface(), []string{"context", domainPkg, entityPkg}},
+		{l.ServiceInterfaces(), []string{pascal + "Service"}, fd.serviceInterface(), []string{"context", domainPkg, dtoPkg, entityPkg}},
 		{l.HandlerInterfaces(), []string{pascal + "Handler"}, fd.handlerInterface(), []string{"net/http"}},
 	}
 
@@ -611,27 +612,27 @@ func (fd featureData) typeEntries() []string {
 }
 
 func (fd featureData) repositoryInterface() string {
-	p, pkg := fd.Name.Pascal, fd.Name.Snake
+	p := fd.Name.Pascal
 	return fmt.Sprintf(`// %sRepository stores %s.
 type %sRepository interface {
-	Create(ctx context.Context, e *%s.%s) error
-	Get(ctx context.Context, id string) (*%s.%s, error)
-	List(ctx context.Context, page domain.PageRequest) ([]*%s.%s, int64, error)
-	Update(ctx context.Context, id string, fn func(*%s.%s) error) (*%s.%s, error)
+	Create(ctx context.Context, e *entity.%s) error
+	Get(ctx context.Context, id string) (*entity.%s, error)
+	List(ctx context.Context, page domain.PageRequest) ([]*entity.%s, int64, error)
+	Update(ctx context.Context, id string, fn func(*entity.%s) error) (*entity.%s, error)
 	Delete(ctx context.Context, id string) error
-}`, p, strings.ToLower(fd.PluralTitle), p, pkg, p, pkg, p, pkg, p, pkg, p, pkg, p)
+}`, p, strings.ToLower(fd.PluralTitle), p, p, p, p, p, p)
 }
 
 func (fd featureData) serviceInterface() string {
-	p, pkg := fd.Name.Pascal, fd.Name.Snake
+	p := fd.Name.Pascal
 	return fmt.Sprintf(`// %sService is the use-case API of the %s feature.
 type %sService interface {
-	Create(ctx context.Context, in %s.CreateInput) (*%s.%s, error)
-	Get(ctx context.Context, id string) (*%s.%s, error)
-	List(ctx context.Context, page domain.PageRequest) ([]*%s.%s, int64, error)
-	Update(ctx context.Context, id string, in %s.UpdateInput) (*%s.%s, error)
+	Create(ctx context.Context, req dto.Create%sRequest) (*entity.%s, error)
+	Get(ctx context.Context, id string) (*entity.%s, error)
+	List(ctx context.Context, page domain.PageRequest) ([]*entity.%s, int64, error)
+	Update(ctx context.Context, id string, req dto.Update%sRequest) (*entity.%s, error)
 	Delete(ctx context.Context, id string) error
-}`, p, pkg, p, pkg, pkg, p, pkg, p, pkg, p, pkg, pkg, p)
+}`, p, fd.Name.Snake, p, p, p, p, p, p, p)
 }
 
 func (fd featureData) handlerInterface() string {

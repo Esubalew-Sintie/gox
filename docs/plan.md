@@ -190,8 +190,8 @@ Everything else, including `app`, `cmd`, `config.yaml`, `migrations` and `testut
 | `initiator/` | `app/` with the same files; `oracle.go` becomes `<db>.go` |
 | `initiator/platform.go` (external clients) | `app/external_api.go`, same role; infrastructure clients move to `app/infra.go` |
 | `platform/platform.go`, `platform/core` | `externalapi/externalapi.go`, `externalapi/corebank/` via `gox gen client corebank` |
-| `internal/constant/entities` | `internal/domain/<feature>` |
-| `internal/constant/dto/request` | `internal/handler/http/<feature>/dto.go` |
+| `internal/constant/entities` | `internal/domain/entity/<feature>.go`, one package, one file per entity (changed 2026-11-12 from `internal/domain/<feature>`) |
+| `internal/constant/dto/request` | `internal/domain/dto/<feature>.go`: request and response types, taken by the service as is (changed 2026-11-12 from `internal/handler/http/<feature>/dto.go`) |
 | `internal/constant/dto/response`, `constant/errors` | `internal/handler/http/response/`, `internal/domain/errors.go`; same wire format, see 3.7 |
 | `internal/storage/persistence/<feature>` | `internal/storage/postgres/<feature>` |
 | `internal/storage/cache/<name>` | `internal/storage/redis/<feature>_cache.go` |
@@ -210,15 +210,16 @@ Everything else, including `app`, `cmd`, `config.yaml`, `migrations` and `testut
 
 | File | Class | Content |
 |---|---|---|
-| `internal/domain/fleet/fleet.go` | once | `Fleet` with invariants in `New`, returning `domain.ErrFleetInvalidCapacity` |
+| `internal/domain/entity/fleet.go` | once | `Fleet` struct with json tags; `NewFleet(req)` fills it from the create request, `Update(req)` applies the update request, `Response()` maps to the wire form; business rules live in the service |
+| `internal/domain/dto/fleet.go` | once | `CreateFleetRequest` with its ozzo `Validate`, `UpdateFleetRequest`, `FleetResponse`; imports nothing of the project |
 | `internal/domain/errors.go` | codemod | appends `ErrFleetNotFound`, `ErrFleetInvalidCapacity`, `ErrFleetDuplicateName` and one line per error in `ErrorMap` and `ErrorTypeMap` |
-| `internal/storage/repository.go` | codemod | appends `type FleetRepository interface { Create, Get, List, Update(ctx, id, func(*fleet.Fleet) error), Delete }`; every method takes `context.Context` first and returns `error` |
+| `internal/storage/repository.go` | codemod | appends `type FleetRepository interface { Create, Get, List, Update(ctx, id, func(*entity.Fleet) error), Delete }`; every method takes `context.Context` first and returns `error` |
 | `internal/service/service.go` | codemod | appends `type FleetService interface { ... }` |
 | `internal/service/fleet/service.go`, `service_test.go` | once | `New(repo storage.FleetRepository, log *slog.Logger) *Service` with `var _ service.FleetService = (*Service)(nil)`; tests against `memstore` |
 | `internal/testutil/memstore/fleet.go` | once | thread-safe fake with `var _ storage.FleetRepository = (*FleetStore)(nil)` |
 | `internal/storage/postgres/fleet/repository.go`, `repository_test.go` | once | `New(pool *pgxpool.Pool, log *slog.Logger) *Repository` with `var _ storage.FleetRepository = (*Repository)(nil)`; pgx implementation; `Update` runs `SELECT ... FOR UPDATE` inside `postgres.WithTx`; shared suite via testcontainers |
 | `internal/handler/handler.go` | codemod | appends `type FleetHandler interface { Create, Get, List, Update, Delete http.HandlerFunc-shaped methods; Routes() []Route }` |
-| `internal/handler/http/fleet/handler.go`, `dto.go`, `handler_test.go` | once | `New(svc service.FleetService, log *slog.Logger) *Handler` with `var _ handler.FleetHandler = (*Handler)(nil)`; ozzo `Validate` methods on the request DTOs; `response.Success` and `response.Error` |
+| `internal/handler/http/fleet/handler.go`, `handler_test.go` | once | `New(svc service.FleetService, log *slog.Logger) *Handler` with `var _ handler.FleetHandler = (*Handler)(nil)`; `request.Decode` into `dto.CreateFleetRequest`, handed to the service as is; `response.Success` and `response.Error` |
 | `migrations/000002_create_fleets.up.sql`, `.down.sql` | once | golang-migrate pair |
 | `app/storage.go`, `service.go`, `handler.go`, `routes.go` | tool | regenerated from `gox.yaml` |
 
@@ -228,15 +229,15 @@ Everything else, including `app`, `cmd`, `config.yaml`, `migrations` and `testut
 
 | Thing | Location |
 |---|---|
-| Entity for a feature | `internal/domain/<feature>/<feature>.go`: struct, `New` with invariants, value objects; imports only `domain` |
-| Shared entity | `internal/domain/<name>/`, created with `gox gen domain <name>` |
-| Enum tied to one entity | the entity's package, `type Status string` plus constants |
+| Entity for a feature | `internal/domain/entity/<feature>.go` in package `entity`, one file per entity: the struct with json tags, `New<Feature>(req dto.Create<Feature>Request)` that fills it (no error; rules live in the service), `Update(req)` and `Response()` (changed 2026-11-12 at the project owner's request; previously a package per entity with `New(CreateInput) (T, error)`) |
+| Shared entity | `internal/domain/entity/<name>.go`, created with `gox gen domain <name>` |
+| Enum tied to one entity | the entity's file, `type FleetStatus string` plus constants |
 | Enum shared across features, shared value objects | `internal/domain/*.go` in package `domain` (`Platform`, `Money`, `Page`) |
 | Errors, all of them | `internal/domain/errors.go`: `ErrorType` constants, `errors.New` sentinels, `ErrorMap`, `ErrorTypeMap`, see 3.7; `gen feature` and `gen client` append their entries, prefixed `ErrFleet*`, `ErrCoreBank*` |
-| Service inputs | `internal/domain/<feature>/`: `CreateInput`, `UpdateInput`; services never take HTTP DTOs |
-| Domain events | `internal/domain/<feature>/events.go` |
+| Service inputs | `internal/domain/dto/<feature>.go`: `Create<Feature>Request`, `Update<Feature>Request`; the service takes the validated request as is and calls `entity.New<Feature>(req)`, as the sample service does (changed 2026-11-12; previously `CreateInput` and `fleet.New`) |
+| Domain events | `internal/domain/event/<feature>.go`, when they arrive |
 | Timeouts, TTLs, limits, topics | `config.yaml` and `internal/config/config.go`, never constants |
-| HTTP DTOs | `internal/handler/http/<feature>/dto.go` with `toInput` and `toResponse` |
+| Response DTOs | `internal/domain/dto/<feature>.go`: `<Feature>Response`; built by `entity.<Feature>.Response()` and `entity.<Feature>Responses(items)`, since `entity` imports `dto` and not the other way round |
 | Envelope and writers, decode and validation, pagination parsing | `internal/handler/http/response/`, `request/`; status and type come from the maps in `internal/domain/errors.go` |
 | User in context | `internal/handler/http/middleware/auth.go`, `UserFromContext` |
 | SQL, table names | inside the repository file |
@@ -564,10 +565,10 @@ HTTP request
   │  chi router, then internal/handler/http/middleware: request id, recovery, logger, auth
   ▼
 internal/handler/http/fleet/handler.go      Create: request.Decode(r, &req)   1 MiB limit, unknown fields rejected, req.Validate() run
-  │  req.toInput()                                  on failure: response.Error(w, r, err)  →  400 validation, first field as message
+  │  h.service.Create(ctx, req)                     on failure: response.Error(w, r, err)  →  400 validation, first field as message
   ▼
-internal/service/fleet/service.go           Create: fleet.New(...) ─► internal/domain/fleet/fleet.go enforces invariants
-  │  s.repo.Create(ctx, f)                          through storage.FleetRepository (internal/storage/repository.go)
+internal/service/fleet/service.go           Create: entity.NewFleet(req) fills the struct; business rules go here
+  │  s.repo.Create(ctx, e)                          through storage.FleetRepository (internal/storage/repository.go)
   ▼
 internal/storage/postgres/fleet/repository.go   r.pool.Exec(...), or postgres.WithTx for Update
   │                                                 on error: postgres.Translate(err, domain.ErrFleetNotFound)
@@ -631,6 +632,8 @@ This is the hardest problem for any wiring generator. Proposed answer, in two la
 | `gox upgrade` | Re-scaffold tool-owned files for a new gox version; three-way merge of once-files is a later feature |
 | Global flags | `--dry-run`, `--yes`, `--force`, `--allow-dirty`, `--no-interactive`, `--verbose` |
 
+Prompts (added 2026-11-12): on a terminal, `new` asks for the name, module path, database, router and git init when they are not given as flags, in one charmbracelet/huh form with the defaults preselected; `gen feature` asks for the name and then for fields one per line until an empty line; `destroy` confirms. `--defaults` (on `new`), `--no-interactive` and an input that is not a terminal take the defaults without asking, so scripts and CI never block; `ACCESSIBLE=1` asks the same questions as plain lines. Every prompt is in `internal/prompt`, so the commands never import huh.
+
 Field DSL for v1: `name:type` with types `string`, `text`, `int`, `int64`, `float64`, `bool`, `time`, `uuid`; a trailing `?` or `:null` marks the field nullable (`:null` because zsh globs an unquoted `?`); the generated `Validate` method applies `validation.Required` to non-nullable fields.
 
 Transcript format follows Rails and Phoenix: `create`, `identical`, `skip`, `conflict`, `regen`, `delete`, each with the path, followed by tailored next steps.
@@ -655,6 +658,7 @@ Transcript format follows Rails and Phoenix: `create`, `identical`, `skip`, `con
 | Tests | stdlib `testing`, testcontainers-go behind `-short` | testify |
 | Lint | golangci-lint v2 with depguard rules from the dependency table of 3.1 | |
 | Dev loop | Makefile, air, `docker-compose.yml` per database | |
+| Prompts (in gox itself) | charmbracelet/huh behind `internal/prompt`; plain lines with `ACCESSIBLE=1`; defaults without a terminal | |
 | Kafka | franz-go (`kgo`) | IBM/sarama, as in the sample service |
 | Object storage | aws-sdk-go-v2 S3 client with custom endpoint for MinIO | |
 | Jobs | stdlib ticker scheduler in `storage/jobs`, no dependency | |

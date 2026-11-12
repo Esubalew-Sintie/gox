@@ -1,0 +1,59 @@
+package entity
+
+import (
+	"time"
+
+	"{{ .Module }}/internal/domain/dto"
+)
+
+// {{ .Name.Pascal }} is the {{ .Title | lower }} as the service and the repositories see it.
+type {{ .Name.Pascal }} struct {
+	ID string `json:"id"`
+{{- range .Fields }}
+	{{ .Name.Pascal }} {{ .GoType }} `json:"{{ .Name.Snake }}{{ if .Nullable }},omitempty{{ end }}"`
+{{- end }}
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// New{{ .Name.Pascal }} builds a {{ .Title | lower }} from a validated create request. Rules
+// that go beyond the request's Validate belong in the service.
+func New{{ .Name.Pascal }}(req dto.Create{{ .Name.Pascal }}Request) *{{ .Name.Pascal }} {
+	now := time.Now().UTC()
+	return &{{ .Name.Pascal }}{
+{{- range .Fields }}
+		{{ .Name.Pascal }}: req.{{ .Name.Pascal }},
+{{- end }}
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+}
+
+// Update copies an update request onto the {{ .Title | lower }}.
+func (e *{{ .Name.Pascal }}) Update(req dto.Update{{ .Name.Pascal }}Request) {
+{{- range .Fields }}
+	e.{{ .Name.Pascal }} = req.{{ .Name.Pascal }}
+{{- end }}
+	e.UpdatedAt = time.Now().UTC()
+}
+
+// Response is the wire form of the {{ .Title | lower }}.
+func (e *{{ .Name.Pascal }}) Response() dto.{{ .Name.Pascal }}Response {
+	return dto.{{ .Name.Pascal }}Response{
+		ID: e.ID,
+{{- range .Fields }}
+		{{ .Name.Pascal }}: e.{{ .Name.Pascal }},
+{{- end }}
+		CreatedAt: e.CreatedAt,
+		UpdatedAt: e.UpdatedAt,
+	}
+}
+
+// {{ .Name.Pascal }}Responses maps a list to its wire form.
+func {{ .Name.Pascal }}Responses(items []*{{ .Name.Pascal }}) []dto.{{ .Name.Pascal }}Response {
+	out := make([]dto.{{ .Name.Pascal }}Response, 0, len(items))
+	for _, e := range items {
+		out = append(out, e.Response())
+	}
+	return out
+}

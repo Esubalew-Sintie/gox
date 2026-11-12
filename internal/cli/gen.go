@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -10,7 +12,10 @@ import (
 	"github.com/esubalew-Sintie/gox/internal/generate"
 	"github.com/esubalew-Sintie/gox/internal/manifest"
 	"github.com/esubalew-Sintie/gox/internal/model"
+	"github.com/esubalew-Sintie/gox/internal/naming"
 	"github.com/esubalew-Sintie/gox/internal/plan"
+	"github.com/esubalew-Sintie/gox/internal/prompt"
+	"github.com/esubalew-Sintie/gox/internal/transcript"
 	"github.com/esubalew-Sintie/gox/internal/version"
 )
 
@@ -57,7 +62,7 @@ func genMigrationCmd(g *globalFlags) *cobra.Command {
 
 func genFeatureCmd(g *globalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:     "feature <Name> [field:type ...]",
+		Use:     "feature [Name] [field:type ...]",
 		Aliases: []string{"f", "module", "resource"},
 		Short:   "Add a feature with every layer and its wiring",
 		Long: `Add a feature: entity, service, repository, HTTP handler with DTOs, in-memory
@@ -66,10 +71,18 @@ composition root. Fields use name:type with types string, text, int, int64,
 float64, bool, time and uuid; a trailing ? or :null makes a field nullable
 (zsh needs the ? quoted, so :null is the shell-safe form).
 
-  gox gen feature fleet name:string capacity:int opened_at:time:null`,
-		Args: cobra.MinimumNArgs(1),
+  gox gen feature fleet name:string capacity:int opened_at:time:null
+
+On a terminal gox asks for the name and the fields when they are not given,
+one field per line until an empty line.`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGenFeature(cmd, g, args[0], args[1:])
+			var name string
+			var fields []string
+			if len(args) > 0 {
+				name, fields = args[0], args[1:]
+			}
+			return runGenFeature(cmd, g, name, fields)
 		},
 	}
 }
@@ -78,6 +91,14 @@ func runGenFeature(cmd *cobra.Command, g *globalFlags, name string, fields []str
 	p, err := loadProject(g.dir)
 	if err != nil {
 		return err
+	}
+	out := g.writer(cmd)
+	name, fields, err = askFeature(g.prompter(cmd), out, p, name, fields)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		return errors.New("a feature name is needed: gox gen feature <Name> [field:type ...]")
 	}
 	fs := manifest.FeatureSpec{Name: name, Fields: fields, Transports: []string{"http"}}
 	if _, exists := p.spec.Feature(name); exists {
@@ -102,7 +123,7 @@ func runGenFeature(cmd *cobra.Command, g *globalFlags, name string, fields []str
 	if err != nil {
 		return err
 	}
-	wiring := p.wiring(gen, g.writer(cmd))
+	wiring := p.wiring(gen, out)
 	tools, err := gen.Tool(wiring)
 	if err != nil {
 		return err
@@ -116,4 +137,72 @@ func runGenFeature(cmd *cobra.Command, g *globalFlags, name string, fields []str
 	pl.Spec = newSpec
 	pl.Manifest.Wiring = wiring
 	return g.run(cmd, p.root, pl, apply.Options{AllowDirty: g.allowDirty}, "")
+}
+
+// askFeature asks for the name when it is missing and for the fields when
+// none were given, one per question until an empty answer.
+func askFeature(pr *prompt.Prompter, out *transcript.Writer, p *project, name string, fields []string) (string, []string, error) {
+	if !pr.Asks() {
+		return name, fields, nil
+	}
+	if name == "" {
+		err := pr.Input(&name, "Feature name", "Singular, for example fleet or vehicle_type.", "fleet", func(s string) error {
+			if _, err := naming.Parse(s); err != nil {
+				return err
+			}
+			if _, exists := p.spec.Feature(s); exists {
+				return fmt.Errorf("feature %q already exists", s)
+			}
+			return nil
+		})
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	if len(fields) > 0 {
+		return name, fields, nil
+	}
+	seen := map[string]bool{}
+	for {
+		title := fmt.Sprintf("Field %d (name:type, empty line to finish)", len(fields)+1)
+		description := "Types: " + joinFieldTypes() + ". Add ? or :null for a nullable field."
+		if len(fields) > 0 {
+			description = "So far: " + strings.Join(fields, " ") + ". " + description
+		}
+		var field string
+		err := pr.Input(&field, title, description, "", func(s string) error {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				return nil
+			}
+			f, err := model.ParseField(s)
+			if err != nil {
+				return err
+			}
+			if seen[f.Name.Snake] {
+				return fmt.Errorf("field %q is declared twice", f.Name.Snake)
+			}
+			return nil
+		})
+		if err != nil {
+			return "", nil, err
+		}
+		field = strings.TrimSpace(field)
+		if field == "" {
+			break
+		}
+		f, _ := model.ParseField(field)
+		seen[f.Name.Snake] = true
+		fields = append(fields, field)
+	}
+	out.Note("feature %s: %s", name, strings.Join(fields, " "))
+	return name, fields, nil
+}
+
+func joinFieldTypes() string {
+	names := make([]string, len(model.FieldTypes))
+	for i, t := range model.FieldTypes {
+		names[i] = string(t)
+	}
+	return strings.Join(names, ", ")
 }

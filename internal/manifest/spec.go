@@ -110,7 +110,7 @@ func (s *Spec) Validate() error {
 	if s.Version != SpecVersion {
 		errs = append(errs, fmt.Errorf("version must be %d, got %d", SpecVersion, s.Version))
 	}
-	if err := module.CheckPath(s.Module); err != nil {
+	if err := module.CheckImportPath(s.Module); err != nil {
 		errs = append(errs, fmt.Errorf("module: %w", err))
 	}
 	if !slices.Contains(Archs, s.Arch) {
